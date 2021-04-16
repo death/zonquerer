@@ -33,7 +33,12 @@
    #:standard-resource
    #:image
    #:surface
-   #:cursor))
+   #:cursor
+   #:texture
+   #:tile-set
+   #:tile-map
+   #:dimensions
+   #:render-map))
 
 (in-package #:zonquerer/resources)
 
@@ -84,10 +89,7 @@
   ((png :initarg :png :reader external)))
 
 (defmethod create-resource ((game game) (kind (eql 'image)) name &key)
-  (let ((filename (merge-pathnames
-                   (make-pathname :name (string-downcase name)
-                                  :type "png")
-                   (assets-directory game))))
+  (let ((filename (make-asset-filename game name "png")))
     (make-instance 'image
                    :name name
                    :game game
@@ -145,3 +147,122 @@
 
 (defmethod free ((cursor cursor))
   (sdl2-ffi.functions:sdl-free-cursor (external cursor)))
+
+;;;; Texture
+
+(defclass texture (standard-resource)
+  ((sdl-texture :initarg :sdl-texture :reader external)))
+
+(defmethod create-resource ((game game) (kind (eql 'texture)) name &key)
+  (let* ((surface (intern-resource game 'surface name))
+         (sdl-surface (external surface))
+         (sdl-texture (sdl2:create-texture-from-surface (renderer game) sdl-surface))
+         (texture (make-instance 'texture
+                                 :name name
+                                 :game game
+                                 :sdl-texture sdl-texture)))
+    ;; Note that the texture does not depend on the surface.
+    texture))
+
+(defmethod free ((texture texture))
+  (sdl2:destroy-texture (external texture)))
+
+;;;; Tile Set
+
+(defclass tile-set (standard-resource)
+  ((columns :initarg :columns :reader columns)
+   (tile-width :initarg :tile-width :reader tile-width)
+   (tile-height :initarg :tile-height :reader tile-height)
+   (tile-count :initarg :tile-count :reader tile-count)))
+
+(defmethod create-resource ((game game) (kind (eql 'tile-set)) name &key)
+  (let* ((filename (make-asset-filename game name "json"))
+         (json (read-json-file filename))
+         (columns (gethash "columns" json))
+         (tile-width (gethash "tilewidth" json))
+         (tile-height (gethash "tileheight" json))
+         (tile-count (gethash "tilecount" json))
+         (image-name (remove-suffix (gethash "image" json) ".png"))
+         (texture (intern-resource game 'texture image-name))
+         (tile-set (make-instance 'tile-set
+                                  :name name
+                                  :game game
+                                  :columns columns
+                                  :tile-width tile-width
+                                  :tile-height tile-height
+                                  :tile-count tile-count)))
+    (depend-on tile-set texture)
+    tile-set))
+
+(defun tile-renderer (tile-set)
+  (let* ((tw (tile-width tile-set))
+         (th (tile-height tile-set))
+         (tc (tile-count tile-set))
+         (cols (columns tile-set))
+         (game (game tile-set))
+         (renderer (renderer game))
+         (texture (first (depends-on tile-set)))
+         (sdl-texture (external texture)))
+    (lambda (n dest-pos)
+      (assert (< n tc))
+      (multiple-value-bind (row col) (truncate n cols)
+        (sdl2:with-rects ((sr (* col tw) (* row th) tw th)
+                          (dr (x dest-pos) (y dest-pos) tw th))
+          (sdl2:render-copy renderer sdl-texture :source-rect sr :dest-rect dr))))))
+
+;;;; Tile Map
+
+(defclass tile-map (standard-resource)
+  ((num-rows :initarg :num-rows :reader num-rows)
+   (num-cols :initarg :num-cols :reader num-cols)
+   (tile-sets :initform '() :accessor tile-sets)
+   (layers :initform '() :accessor layers)
+   (dimensions :initform #C(0 0) :accessor dimensions)))
+
+(defmethod create-resource ((game game) (kind (eql 'tile-map)) name &key)
+  (let* ((filename (make-asset-filename game name "json"))
+         (json (read-json-file filename))
+         (width (gethash "width" json))
+         (height (gethash "height" json))
+         (layers-json (gethash "layers" json))
+         (tile-sets-json (gethash "tilesets" json))
+         (tile-sets '())
+         (layers '())
+         (tile-map (make-instance 'tile-map
+                                  :name name
+                                  :game game
+                                  :num-cols width
+                                  :num-rows height)))
+    (assert (= (length tile-sets-json) (length layers-json)))
+    (dotimes (i (length tile-sets-json))
+      (let* ((tile-set-json (aref tile-sets-json i))
+             (layer-json (aref layers-json i))
+             (source (remove-suffix (gethash "source" tile-set-json) ".json"))
+             (first-gid (gethash "firstgid" tile-set-json))
+             (tile-set (intern-resource game 'tile-set source))
+             (data (gethash "data" layer-json)))
+        (assert (= (length data) (* width height)))
+        (push tile-set tile-sets)
+        (push (map 'list (lambda (x) (- x first-gid)) data) layers)
+        (depend-on tile-map tile-set)))
+    (setf (tile-sets tile-map) (nreverse tile-sets))
+    (setf (layers tile-map) (nreverse layers))
+    (setf (dimensions tile-map)
+          (point (* width (tile-width (first tile-sets)))
+                 (* height (tile-height (first tile-sets)))))
+    tile-map))
+
+(defun render-map (tile-map start-pos)
+  (loop with cols = (num-cols tile-map)
+        with rows = (num-rows tile-map)
+        for layer in (layers tile-map)
+        for tile-set in (tile-sets tile-map)
+        for tw = (tile-width tile-set)
+        for th = (tile-height tile-set)
+        for render-tile = (tile-renderer tile-set)
+        do (dotimes (row rows)
+             (let ((pos (point 0 (* row th))))
+               (dotimes (col cols)
+                 (let ((n (pop layer)))
+                   (funcall render-tile n (- pos start-pos))
+                   (incf pos (point tw 0))))))))

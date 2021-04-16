@@ -24,13 +24,20 @@
   (:use
    #:cl
    #:zonquerer/protocols)
+  (:import-from
+   #:alexandria)
+  (:import-from
+   #:com.gigamonkeys.json)
   (:export
    #:check
    #:intern-resource
    #:x
    #:y
    #:point
-   #:destructure-point))
+   #:destructure-point
+   #:make-asset-filename
+   #:read-json-file
+   #:remove-suffix))
 
 (in-package #:zonquerer/utils)
 
@@ -66,3 +73,19 @@
             (,x (x ,var))
             (,y (y ,var)))
        ,@body)))
+
+(defun make-asset-filename (game name type)
+  (merge-pathnames
+   (make-pathname :name (string-downcase name)
+                  :type type)
+   (assets-directory game)))
+
+(defun read-json-file (filename)
+  (let ((com.gigamonkeys.json:*object-type* :hash-table))
+    (com.gigamonkeys.json:parse-json
+     (alexandria:read-file-into-string filename))))
+
+(defun remove-suffix (sequence suffix)
+  (if (alexandria:ends-with-subseq suffix sequence)
+      (subseq sequence 0 (- (length sequence) (length suffix)))
+      sequence))

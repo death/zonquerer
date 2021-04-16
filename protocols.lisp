@@ -24,6 +24,7 @@
   (:use #:cl)
   (:export
    #:game
+   #:renderer
    #:update
    #:draw
    #:find-resource
@@ -44,6 +45,8 @@
 
 (defclass game ()
   ())
+
+(defgeneric renderer (game))
 
 (defgeneric update (game))
 

@@ -23,7 +23,7 @@
  "tilesets":[
         {
          "firstgid":1,
-         "source":"zones-tileset.tsx"
+         "source":"zones-tileset.json"
         }],
  "tilewidth":64,
  "type":"map",
