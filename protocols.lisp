@@ -20,18 +20,62 @@
 ;;;; | <https://www.gnu.org/licenses/>.                               |
 ;;;; +----------------------------------------------------------------+
 
-;;;; System definitions
+(defpackage #:zonquerer/protocols
+  (:use #:cl)
+  (:export
+   #:game
+   #:update
+   #:draw
+   #:find-resource
+   #:create-resource
+   #:free-all-resources
+   #:remove-resource
+   #:assets-directory
+   #:resource
+   #:game
+   #:key
+   #:external
+   #:who-depends
+   #:depends-on
+   #:depend-on
+   #:free))
 
-;; -*- Mode: LISP; Syntax: COMMON-LISP; Package: CL-USER; Base: 10 -*-
+(in-package #:zonquerer/protocols)
 
-(asdf:register-system-packages :sdl2 '(:sdl2-ffi.functions))
-(asdf:register-system-packages :cl-autowrap '(:autowrap))
-(asdf:register-system-packages :cl-plus-c '(:plus-c))
+(defclass game ()
+  ())
 
-(asdf:defsystem #:zonquerer
-  :description ""
-  :author "death <github.com/death>"
-  :license "AGPL3"
-  :class :package-inferred-system
-  :defsystem-depends-on ("asdf-package-system")
-  :depends-on ("zonquerer/all"))
+(defgeneric update (game))
+
+(defgeneric draw (game))
+
+(defgeneric find-resource (game kind name))
+
+(defgeneric (setf find-resource) (resource game kind name))
+
+(defgeneric create-resource (game kind name &key &allow-other-keys))
+
+(defgeneric free-all-resources (game))
+
+(defgeneric remove-resource (game kind name))
+
+(defgeneric assets-directory (game))
+
+(defclass resource ()
+  ())
+
+(defgeneric game (resource))
+
+(defgeneric name (resource))
+
+(defgeneric kind (resource))
+
+(defgeneric external (resource))
+
+(defgeneric who-depends (resource))
+
+(defgeneric depends-on (resource))
+
+(defgeneric depend-on (resource1 resource2))
+
+(defgeneric free (resource))

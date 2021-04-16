@@ -20,18 +20,49 @@
 ;;;; | <https://www.gnu.org/licenses/>.                               |
 ;;;; +----------------------------------------------------------------+
 
-;;;; System definitions
+(defpackage #:zonquerer/utils
+  (:use
+   #:cl
+   #:zonquerer/protocols)
+  (:export
+   #:check
+   #:intern-resource
+   #:x
+   #:y
+   #:point
+   #:destructure-point))
 
-;; -*- Mode: LISP; Syntax: COMMON-LISP; Package: CL-USER; Base: 10 -*-
+(in-package #:zonquerer/utils)
 
-(asdf:register-system-packages :sdl2 '(:sdl2-ffi.functions))
-(asdf:register-system-packages :cl-autowrap '(:autowrap))
-(asdf:register-system-packages :cl-plus-c '(:plus-c))
+(defmacro check (form expected-value &optional (test 'eql))
+  (let ((actual-value (gensym)))
+    `(let ((,actual-value ,form))
+       (assert (,test ,actual-value ,expected-value)
+               (,actual-value)
+               "Form ~S evaluated to ~S, which is not ~S to value ~S."
+               ',form
+               ,actual-value
+               ',test
+               ,expected-value)
+       ,actual-value)))
 
-(asdf:defsystem #:zonquerer
-  :description ""
-  :author "death <github.com/death>"
-  :license "AGPL3"
-  :class :package-inferred-system
-  :defsystem-depends-on ("asdf-package-system")
-  :depends-on ("zonquerer/all"))
+(defun intern-resource (game kind name &rest keys)
+  (or (find-resource game kind name)
+      (setf (find-resource game kind name)
+            (apply #'create-resource game kind name keys))))
+
+(defun x (point)
+  (realpart point))
+
+(defun y (point)
+  (imagpart point))
+
+(defun point (x y)
+  (complex x y))
+
+(defmacro destructure-point ((x y) point &body body)
+  (let ((var (gensym)))
+    `(let* ((,var ,point)
+            (,x (x ,var))
+            (,y (y ,var)))
+       ,@body)))

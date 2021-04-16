@@ -26,4 +26,4 @@
   (:use
    #:zonquerer/game)
   (:export
-   #:game))
+   #:play))
