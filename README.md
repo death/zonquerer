@@ -24,7 +24,7 @@ following at your toplevel:
 ```lisp
 (ql:quickload "zonquerer")
 
-(zonquerer:game)
+(zonquerer:play)
 ```
 
 # license
