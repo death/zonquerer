@@ -48,7 +48,7 @@
 
 (defgeneric renderer (game))
 
-(defgeneric update (game))
+(defgeneric update (game dt))
 
 (defgeneric draw (game))
 

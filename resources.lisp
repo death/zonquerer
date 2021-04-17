@@ -207,7 +207,7 @@
       (assert (< n tc))
       (multiple-value-bind (row col) (truncate n cols)
         (sdl2:with-rects ((sr (* col tw) (* row th) tw th)
-                          (dr (x dest-pos) (y dest-pos) tw th))
+                          (dr (ceiling (x dest-pos)) (ceiling (y dest-pos)) tw th))
           (sdl2:render-copy renderer sdl-texture :source-rect sr :dest-rect dr))))))
 
 ;;;; Tile Map
