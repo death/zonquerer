@@ -24,6 +24,6 @@
   (:nicknames
    #:zonquerer)
   (:use
-   #:zonquerer/game)
+   #:zonquerer/zonquerer)
   (:export
    #:play))

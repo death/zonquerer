@@ -25,6 +25,11 @@
   (:export
    #:game
    #:renderer
+   #:video-dimensions
+   #:keys
+   #:mouse-position
+   #:request-cursor
+   #:event-loop
    #:update
    #:draw
    #:find-resource
@@ -47,6 +52,16 @@
   ())
 
 (defgeneric renderer (game))
+
+(defgeneric video-dimensions (game))
+
+(defgeneric keys (game))
+
+(defgeneric mouse-position (game))
+
+(defgeneric request-cursor (game name))
+
+(defgeneric event-loop (game))
 
 (defgeneric update (game dt))
 

@@ -33,11 +33,12 @@
   (:import-from
    #:autowrap)
   (:export
-   #:play))
+   #:standard-game
+   #:driver))
 
 (in-package #:zonquerer/game)
 
-(defclass zonquerer (game)
+(defclass standard-game (game)
   ((video-dimensions :initform #C(320 200) :reader video-dimensions)
    (window :initform nil :accessor window)
    (renderer :initform nil :accessor renderer)
@@ -47,17 +48,15 @@
    (current-cursor :initform nil :accessor current-cursor)
    (next-cursor :initform nil :accessor next-cursor)
    (assets-directory :initform #p"/home/death/lisp/zonquerer/assets/" :reader assets-directory)
-   (resources :initform (make-hash-table :test 'equal) :reader resources)
-   (map-start-position :initform #C(0 0) :accessor map-start-position)
-   (tile-map :initform nil :accessor tile-map)))
+   (resources :initform (make-hash-table :test 'equal) :reader resources)))
 
-(defmethod find-resource ((game zonquerer) kind name)
+(defmethod find-resource ((game standard-game) kind name)
   (gethash (list kind name) (resources game)))
 
-(defmethod (setf find-resource) (resource (game zonquerer) kind name)
+(defmethod (setf find-resource) (resource (game standard-game) kind name)
   (setf (gethash (list kind name) (resources game)) resource))
 
-(defmethod free-all-resources ((game zonquerer))
+(defmethod free-all-resources ((game standard-game))
   (let* ((resources (resources game))
          (list (loop for resource being each hash-value of resources
                      collect resource)))
@@ -65,48 +64,21 @@
       (free resource))
     (assert (zerop (hash-table-count resources)))))
 
-(defmethod remove-resource ((game zonquerer) kind name)
+(defmethod remove-resource ((game standard-game) kind name)
   (remhash (list kind name) (resources game)))
 
-(defun update-map-scrolling (game dt)
-  (destructure-point (mx my) (mouse-position game)
-    (destructure-point (vw vh) (video-dimensions game)
-      (destructure-point (tmw tmh) (dimensions (tile-map game))
-        (let ((margin 1)
-              (c :cursor-select)
-              (pos (map-start-position game)))
-          (when (< mx margin)
-            (setf c :cursor-left)
-            (when (plusp (x pos))
-              (setf pos (- pos (* dt #C(200 0))))))
-          (when (> mx (- vw margin 1))
-            (setf c :cursor-right)
-            (when (< (x pos) (- tmw vw))
-              (setf pos (+ pos (* dt #C(200 0))))))
-          (when (< my margin)
-            (setf c :cursor-up)
-            (when (plusp (y pos))
-              (setf pos (- pos (* dt #C(0 200))))))
-          (when (> my (- vh margin 1))
-            (setf c :cursor-down)
-            (when (< (y pos) (- tmh vh))
-              (setf pos (+ pos (* dt #C(0 200))))))
-          (setf (next-cursor game) c)
-          (setf (map-start-position game) pos))))))
-
-(defmethod update ((game zonquerer) dt)
-  (update-map-scrolling game dt)
+(defmethod update :after ((game standard-game) dt)
   (when (member :scancode-escape (keys game))
     (sdl2:push-quit-event)))
 
-(defmethod draw ((game zonquerer))
+(defmethod draw :around ((game standard-game))
   (let ((current-cursor (current-cursor game))
         (next-cursor (next-cursor game)))
     (when (not (eq current-cursor next-cursor))
       (set-cursor game next-cursor)))
   (let ((renderer (renderer game)))
     (sdl2:render-clear renderer)
-    (render-map (tile-map game) (map-start-position game))
+    (call-next-method)
     (sdl2:render-present renderer)))
 
 (defun mouse-event (game state button position)
@@ -117,69 +89,59 @@
   (declare (ignore game))
   (format t "Window event ~S~%" id))
 
+(defmethod request-cursor ((game standard-game) name)
+  (setf (next-cursor game) name))
+
 (defun set-cursor (game name)
   (sdl2-ffi.functions:sdl-set-cursor
    (external (intern-resource game 'cursor name)))
   (setf (current-cursor game) name))
 
-(defmacro with-resources ((game) &body body)
-  `(unwind-protect
-        (progn ,@body)
-     (free-all-resources ,game)))
+(defmethod event-loop ((game standard-game))
+  (setf (ticks game) (sdl2:get-ticks))
+  (sdl2:with-event-loop (:recursive t)
+    (:quit () t)
+    (:keydown
+     (:keysym keysym)
+     (let ((scancode (sdl2:scancode keysym)))
+       (pushnew scancode (keys game))))
+    (:keyup
+     (:keysym keysym)
+     (let ((scancode (sdl2:scancode keysym)))
+       (setf (keys game)
+             (delete scancode (keys game) :count 1))))
+    (:mousemotion
+     (:x x :y y)
+     (setf (mouse-position game) (point x y)))
+    (:mousebuttondown
+     (:button button :x x :y y)
+     (mouse-event game :down button (point x y)))
+    (:mousebuttonup
+     (:button button :x x :y y)
+     (mouse-event game :up button (point x y)))
+    (:idle
+     ()
+     (let* ((ticks (sdl2:get-ticks))
+            (dt (* (- ticks (ticks game)) 1e-3)))
+       (setf (ticks game) ticks)
+       (update game dt)
+       (draw game)))
+    (:windowevent
+     (:event event)
+     (let ((id (autowrap:enum-key 'sdl2-ffi:sdl-window-event-id event)))
+       (window-event game id)))))
 
-(defvar *cursor-hotspots*
-  '((:cursor-select 16 16)
-    (:cursor-left 0 16)
-    (:cursor-right 31 16)
-    (:cursor-up 16 0)
-    (:cursor-down 16 31)))
-
-(defun play ()
-  (let ((game (make-instance 'zonquerer)))
-    (sdl2:with-init (:video)
-      (destructure-point (width height) (video-dimensions game)
-        (sdl2:with-window (window :w 0 :h 0 :flags '(:shown :fullscreen-desktop))
-          (sdl2:with-renderer (renderer window :flags '(:accelerated))
-            (sdl2-ffi.functions:sdl-set-hint sdl2-ffi:+sdl-hint-render-scale-quality+ "nearest")
-            (sdl2-ffi.functions:sdl-render-set-logical-size renderer width height)
-            (sdl2-ffi.functions:sdl-set-window-grab window :true)
-            (sdl2:set-render-draw-color renderer 0 0 0 255)
-            (setf (window game) window)
-            (setf (renderer game) renderer)
-            (with-resources (game)
-              (loop for (cursor-name hx hy) in *cursor-hotspots*
-                    do (intern-resource game 'cursor cursor-name :hot (point hx hy)))
-              (set-cursor game :cursor-select)
-              (setf (tile-map game) (intern-resource game 'tile-map 'map-01))
-              (setf (ticks game) (sdl2:get-ticks))
-              (sdl2:with-event-loop (:recursive t)
-                (:quit () t)
-                (:keydown
-                 (:keysym keysym)
-                 (let ((scancode (sdl2:scancode keysym)))
-                   (pushnew scancode (keys game))))
-                (:keyup
-                 (:keysym keysym)
-                 (let ((scancode (sdl2:scancode keysym)))
-                   (setf (keys game)
-                         (delete scancode (keys game) :count 1))))
-                (:mousemotion
-                 (:x x :y y)
-                 (setf (mouse-position game) (point x y)))
-                (:mousebuttondown
-                 (:button button :x x :y y)
-                 (mouse-event game :down button (point x y)))
-                (:mousebuttonup
-                 (:button button :x x :y y)
-                 (mouse-event game :up button (point x y)))
-                (:idle
-                 ()
-                 (let* ((ticks (sdl2:get-ticks))
-                        (dt (* (- ticks (ticks game)) 1e-3)))
-                   (setf (ticks game) ticks)
-                   (update game dt)
-                   (draw game)))
-                (:windowevent
-                 (:event event)
-                 (let ((id (autowrap:enum-key 'sdl2-ffi:sdl-window-event-id event)))
-                   (window-event game id)))))))))))
+(defun driver (game)
+  (sdl2:with-init (:video)
+    (destructure-point (width height) (video-dimensions game)
+      (sdl2:with-window (window :w 0 :h 0 :flags '(:shown :fullscreen-desktop))
+        (sdl2:with-renderer (renderer window :flags '(:accelerated))
+          (sdl2-ffi.functions:sdl-set-hint sdl2-ffi:+sdl-hint-render-scale-quality+ "nearest")
+          (sdl2-ffi.functions:sdl-render-set-logical-size renderer width height)
+          (sdl2-ffi.functions:sdl-set-window-grab window :true)
+          (sdl2:set-render-draw-color renderer 0 0 0 255)
+          (setf (window game) window)
+          (setf (renderer game) renderer)
+          (unwind-protect
+               (event-loop game)
+            (free-all-resources game)))))))
