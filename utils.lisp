@@ -37,7 +37,8 @@
    #:destructure-point
    #:make-asset-filename
    #:read-json-file
-   #:remove-suffix))
+   #:remove-suffix
+   #:as-keyword))
 
 (in-package #:zonquerer/utils)
 
@@ -89,3 +90,6 @@
   (if (alexandria:ends-with-subseq suffix sequence)
       (subseq sequence 0 (- (length sequence) (length suffix)))
       sequence))
+
+(defun as-keyword (string-designator)
+  (alexandria:make-keyword (string-upcase string-designator)))

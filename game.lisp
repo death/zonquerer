@@ -68,10 +68,12 @@
   (remhash (list kind name) (resources game)))
 
 (defmethod update :after ((game standard-game) dt)
+  (declare (ignore dt))
   (when (member :scancode-escape (keys game))
     (sdl2:push-quit-event)))
 
-(defmethod draw :around ((game standard-game))
+(defmethod draw :around ((game standard-game) dt)
+  (declare (ignore dt))
   (let ((current-cursor (current-cursor game))
         (next-cursor (next-cursor game)))
     (when (not (eq current-cursor next-cursor))
@@ -125,7 +127,7 @@
             (dt (* (- ticks (ticks game)) 1e-3)))
        (setf (ticks game) ticks)
        (update game dt)
-       (draw game)))
+       (draw game dt)))
     (:windowevent
      (:event event)
      (let ((id (autowrap:enum-key 'sdl2-ffi:sdl-window-event-id event)))

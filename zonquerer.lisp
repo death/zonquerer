@@ -34,7 +34,8 @@
 
 (defclass zonquerer (standard-game)
   ((map-start-position :initform #C(0 0) :accessor map-start-position)
-   (tile-map :initform nil :accessor tile-map)))
+   (tile-map :initform nil :accessor tile-map)
+   (anim :initform nil :accessor anim)))
 
 (defun update-map-scrolling (game dt)
   (destructure-point (mx my) (mouse-position game)
@@ -65,8 +66,9 @@
 (defmethod update ((game zonquerer) dt)
   (update-map-scrolling game dt))
 
-(defmethod draw ((game zonquerer))
-  (render-map (tile-map game) (map-start-position game)))
+(defmethod draw ((game zonquerer) dt)
+  (render-map (tile-map game) (map-start-position game))
+  (funcall (anim game) (mouse-position game) dt))
 
 (defvar *cursor-hotspots*
   '((:cursor-select 16 16)
@@ -82,7 +84,8 @@
 
 (defmethod event-loop :before ((game zonquerer))
   (setup-cursors game)
-  (setf (tile-map game) (intern-resource game 'tile-map :map-01)))
+  (setf (tile-map game) (intern-resource game 'tile-map :map-01))
+  (setf (anim game) (sprite-animator (intern-resource game 'sprite-sheet :unit) :down)))
 
 (defun play ()
   (driver (make-instance 'zonquerer)))

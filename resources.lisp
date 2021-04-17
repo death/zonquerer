@@ -38,7 +38,9 @@
    #:tile-set
    #:tile-map
    #:dimensions
-   #:render-map))
+   #:render-map
+   #:sprite-sheet
+   #:sprite-animator))
 
 (in-package #:zonquerer/resources)
 
@@ -266,3 +268,86 @@
                  (let ((n (pop layer)))
                    (funcall render-tile n (- pos start-pos))
                    (incf pos (point tw 0))))))))
+
+;;;; Sprite Sheet
+
+;; Some assumptions:
+;;
+;; - All frames in the sprite sheet are tagged.
+;;
+;; - The "frames" field is a JSON object (not an array), and each key
+;;   is of the form "{tag} {frame}".
+
+(defclass sprite-sheet (standard-resource)
+  ((frames :initarg :frames :reader frames)))
+
+(defun make-frames (frames-json frame-tags-json)
+  (let ((frames (make-hash-table)))
+    (loop for frame-tag-json across frame-tags-json
+          for tag = (gethash "name" frame-tag-json)
+          for tag-keyword = (as-keyword tag)
+          for from = (gethash "from" frame-tag-json)
+          for to = (gethash "to" frame-tag-json)
+          for count = (1+ (- to from))
+          for rects = (make-array count)
+          for durations = (make-array count)
+          do (do ((i from (1+ i)))
+                 ((> i to))
+               (let* ((key (format nil "~A ~D" tag i))
+                      (frame-json (gethash key frames-json))
+                      (rect-json (gethash "frame" frame-json)))
+                 (setf (aref rects i)
+                       (sdl2:make-rect (gethash "x" rect-json)
+                                       (gethash "y" rect-json)
+                                       (gethash "w" rect-json)
+                                       (gethash "h" rect-json)))
+                 (setf (aref durations i)
+                       (gethash "duration" frame-json))))
+             (setf (gethash tag-keyword frames)
+                   (list rects durations)))
+    frames))
+
+(defmethod create-resource ((game game) (kind (eql 'sprite-sheet)) name &key)
+  (let* ((filename (make-asset-filename game name "json"))
+         (json (read-json-file filename))
+         (meta-json (gethash "meta" json))
+         (frames-json (gethash "frames" json))
+         (image-name (remove-suffix (gethash "image" meta-json) ".png"))
+         (frame-tags-json (gethash "frameTags" meta-json))
+         (frames (make-frames frames-json frame-tags-json))
+         (texture (intern-resource game 'texture image-name))
+         (sprite-sheet (make-instance 'sprite-sheet
+                                      :name name
+                                      :game game
+                                      :frames frames)))
+    (depend-on sprite-sheet texture)
+    sprite-sheet))
+
+(defun sprite-animator (sprite-sheet tag &key (start-frame 0))
+  (destructuring-bind (rects durations)
+      (gethash tag (frames sprite-sheet))
+    (let* ((texture (first (depends-on sprite-sheet)))
+           (sdl-texture (external texture))
+           (renderer (renderer (game sprite-sheet)))
+           (time-ms 0.0)
+           (num-frames (length rects))
+           (frame (mod start-frame num-frames))
+           (source-rect (aref rects frame))
+           (wait-ms (aref durations frame))
+           (sw (sdl2:rect-width source-rect))
+           (sh (sdl2:rect-height source-rect)))
+      (lambda (dest-pos dt)
+        (let* ((dt-ms (* dt 1000.0))
+               (now-ms (+ time-ms dt-ms)))
+          (loop while (< (+ time-ms wait-ms) now-ms)
+                do (incf time-ms wait-ms)
+                   (setf frame (mod (1+ frame) num-frames))
+                   (setf source-rect (aref rects frame))
+                   (setf wait-ms (aref durations frame)))
+          (decf wait-ms (- now-ms time-ms))
+          (setf time-ms now-ms)
+          (sdl2:with-rects ((dest-rect (ceiling (x dest-pos)) (ceiling (y dest-pos)) sw sh))
+            (sdl2:render-copy renderer
+                              sdl-texture
+                              :source-rect source-rect
+                              :dest-rect dest-rect)))))))

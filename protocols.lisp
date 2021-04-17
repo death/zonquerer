@@ -65,7 +65,7 @@
 
 (defgeneric update (game dt))
 
-(defgeneric draw (game))
+(defgeneric draw (game dt))
 
 (defgeneric find-resource (game kind name))
 
