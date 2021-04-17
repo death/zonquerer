@@ -38,7 +38,8 @@
    #:tile-set
    #:tile-map
    #:dimensions
-   #:sprite-sheet))
+   #:sprite-sheet
+   #:font))
 
 (in-package #:zonquerer/resources)
 
@@ -354,3 +355,50 @@
                             sdl-texture
                             :source-rect source-rect
                             :dest-rect dest-rect))))))
+
+;;;; Font
+
+(defclass font (standard-resource)
+  ((alphabet-table :initarg :alphabet-table :reader alphabet-table)
+   (glyph-dimensions :initarg :glyph-dimensions :reader glyph-dimensions)
+   (render-function :initform nil :accessor external)))
+
+(defmethod create-resource ((game game) (kind (eql 'font)) name
+                            &key (alphabet "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-+")
+                                 (glyph-dimensions #C(8 10)))
+  (let* ((texture (intern-resource game 'texture name))
+         (alphabet-table (make-hash-table))
+         (font (make-instance 'font
+                              :name name
+                              :game game
+                              :alphabet-table alphabet-table
+                              :glyph-dimensions glyph-dimensions)))
+    (depend-on font texture)
+    (destructure-point (gw gh) glyph-dimensions
+      (loop for char across alphabet
+            for i upfrom 0
+            do (setf (gethash char alphabet-table)
+                     (sdl2:make-rect (* i gw) 0 gw gh)))
+      (let ((next-pos-in-line (point (x glyph-dimensions) 0))
+            (sdl-texture (external texture))
+            (weird-chars (make-hash-table))
+            (dest-rect (sdl2:make-rect 0 0 gw gh))
+            (renderer (renderer game)))
+        (setf (gethash #\Space weird-chars) t)
+        (setf (external font)
+              (lambda (string start-pos)
+                (let ((pos start-pos)
+                      (rect nil))
+                  (loop for char across string
+                        do (cond ((setq rect (gethash char alphabet-table))
+                                  (setf (sdl2:rect-x dest-rect) (x pos))
+                                  (setf (sdl2:rect-y dest-rect) (y pos))
+                                  (sdl2:render-copy renderer sdl-texture
+                                                    :source-rect rect
+                                                    :dest-rect dest-rect))
+                                 (t
+                                  (unless (gethash char weird-chars)
+                                    (warn "No glyph found in font ~S for character ~S." name char)
+                                    (setf (gethash char weird-chars) t))))
+                           (setf pos (+ pos next-pos-in-line))))))))
+    font))

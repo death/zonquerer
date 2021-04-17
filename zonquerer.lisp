@@ -105,6 +105,11 @@
   (declare (ignore dt)))
 
 (defmethod draw ((game zonquerer) dt)
+  (let ((dest-rect (sdl2:make-rect 0 150 320 50)))
+    (sdl2:render-copy (renderer game)
+                      (external (intern-resource game 'texture :panel))
+                      :dest-rect dest-rect)
+    (sdl2:free-rect dest-rect))
   (funcall (anim game) (mouse-position game) dt))
 
 (defmethod event-loop :before ((game zonquerer))
