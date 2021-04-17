@@ -38,9 +38,7 @@
    #:tile-set
    #:tile-map
    #:dimensions
-   #:render-map
-   #:sprite-sheet
-   #:sprite-animator))
+   #:sprite-sheet))
 
 (in-package #:zonquerer/resources)
 
@@ -175,7 +173,8 @@
   ((columns :initarg :columns :reader columns)
    (tile-width :initarg :tile-width :reader tile-width)
    (tile-height :initarg :tile-height :reader tile-height)
-   (tile-count :initarg :tile-count :reader tile-count)))
+   (tile-count :initarg :tile-count :reader tile-count)
+   (render-function :initform nil :accessor external)))
 
 (defmethod create-resource ((game game) (kind (eql 'tile-set)) name &key)
   (let* ((filename (make-asset-filename game name "json"))
@@ -194,23 +193,20 @@
                                   :tile-height tile-height
                                   :tile-count tile-count)))
     (depend-on tile-set texture)
+    (let ((renderer (renderer game))
+          (sdl-texture (external texture))
+          (sr (sdl2:make-rect 0 0 tile-width tile-height))
+          (dr (sdl2:make-rect 0 0 tile-width tile-height)))
+      (setf (external tile-set)
+            (lambda (n dest-pos)
+              (assert (< n tile-count))
+              (multiple-value-bind (row col) (truncate n columns)
+                (setf (sdl2:rect-x sr) (* col tile-width))
+                (setf (sdl2:rect-y sr) (* row tile-height))
+                (setf (sdl2:rect-x dr) (ceiling (x dest-pos)))
+                (setf (sdl2:rect-y dr) (ceiling (y dest-pos)))
+                (sdl2:render-copy renderer sdl-texture :source-rect sr :dest-rect dr)))))
     tile-set))
-
-(defun tile-renderer (tile-set)
-  (let* ((tw (tile-width tile-set))
-         (th (tile-height tile-set))
-         (tc (tile-count tile-set))
-         (cols (columns tile-set))
-         (game (game tile-set))
-         (renderer (renderer game))
-         (texture (first (depends-on tile-set)))
-         (sdl-texture (external texture)))
-    (lambda (n dest-pos)
-      (assert (< n tc))
-      (multiple-value-bind (row col) (truncate n cols)
-        (sdl2:with-rects ((sr (* col tw) (* row th) tw th)
-                          (dr (ceiling (x dest-pos)) (ceiling (y dest-pos)) tw th))
-          (sdl2:render-copy renderer sdl-texture :source-rect sr :dest-rect dr))))))
 
 ;;;; Tile Map
 
@@ -219,7 +215,8 @@
    (num-cols :initarg :num-cols :reader num-cols)
    (tile-sets :initform '() :accessor tile-sets)
    (layers :initform '() :accessor layers)
-   (dimensions :initform #C(0 0) :accessor dimensions)))
+   (dimensions :initform #C(0 0) :accessor dimensions)
+   (render-function :initform nil :accessor external)))
 
 (defmethod create-resource ((game game) (kind (eql 'tile-map)) name &key)
   (let* ((filename (make-asset-filename game name "json"))
@@ -247,27 +244,29 @@
         (push tile-set tile-sets)
         (push (map 'list (lambda (x) (- x first-gid)) data) layers)
         (depend-on tile-map tile-set)))
-    (setf (tile-sets tile-map) (nreverse tile-sets))
-    (setf (layers tile-map) (nreverse layers))
+    (setf tile-sets (nreverse tile-sets))
+    (setf layers (nreverse layers))
+    (setf (tile-sets tile-map) tile-sets)
+    (setf (layers tile-map) layers)
     (setf (dimensions tile-map)
           (point (* width (tile-width (first tile-sets)))
                  (* height (tile-height (first tile-sets)))))
+    (let ((tile-renderers (mapcar #'external tile-sets))
+          (tile-widths (mapcar #'tile-width tile-sets))
+          (tile-heights (mapcar #'tile-height tile-sets)))
+      (setf (external tile-map)
+            (lambda (start-pos)
+              (loop for layer in layers
+                    for tw in tile-widths
+                    for th in tile-heights
+                    for render-tile in tile-renderers
+                    do (dotimes (row height)
+                         (let ((pos (point 0 (* row th))))
+                           (dotimes (col width)
+                             (let ((n (pop layer)))
+                               (funcall render-tile n (- pos start-pos))
+                               (incf pos (point tw 0))))))))))
     tile-map))
-
-(defun render-map (tile-map start-pos)
-  (loop with cols = (num-cols tile-map)
-        with rows = (num-rows tile-map)
-        for layer in (layers tile-map)
-        for tile-set in (tile-sets tile-map)
-        for tw = (tile-width tile-set)
-        for th = (tile-height tile-set)
-        for render-tile = (tile-renderer tile-set)
-        do (dotimes (row rows)
-             (let ((pos (point 0 (* row th))))
-               (dotimes (col cols)
-                 (let ((n (pop layer)))
-                   (funcall render-tile n (- pos start-pos))
-                   (incf pos (point tw 0))))))))
 
 ;;;; Sprite Sheet
 
@@ -279,7 +278,8 @@
 ;;   is of the form "{tag} {frame}".
 
 (defclass sprite-sheet (standard-resource)
-  ((frames :initarg :frames :reader frames)))
+  ((frames :initarg :frames :reader frames)
+   (anim-function :initform nil :accessor external)))
 
 (defun make-frames (frames-json frame-tags-json)
   (let ((frames (make-hash-table)))
@@ -321,9 +321,12 @@
                                       :game game
                                       :frames frames)))
     (depend-on sprite-sheet texture)
+    (setf (external sprite-sheet)
+          (lambda (tag &key (start-frame 0))
+            (sprite-animator sprite-sheet tag start-frame)))
     sprite-sheet))
 
-(defun sprite-animator (sprite-sheet tag &key (start-frame 0))
+(defun sprite-animator (sprite-sheet tag start-frame)
   (destructuring-bind (rects durations)
       (gethash tag (frames sprite-sheet))
     (let* ((texture (first (depends-on sprite-sheet)))
@@ -334,8 +337,7 @@
            (frame (mod start-frame num-frames))
            (source-rect (aref rects frame))
            (wait-ms (aref durations frame))
-           (sw (sdl2:rect-width source-rect))
-           (sh (sdl2:rect-height source-rect)))
+           (dest-rect (sdl2:copy-rect source-rect)))
       (lambda (dest-pos dt)
         (let* ((dt-ms (* dt 1000.0))
                (now-ms (+ time-ms dt-ms)))
@@ -346,8 +348,9 @@
                    (setf wait-ms (aref durations frame)))
           (decf wait-ms (- now-ms time-ms))
           (setf time-ms now-ms)
-          (sdl2:with-rects ((dest-rect (ceiling (x dest-pos)) (ceiling (y dest-pos)) sw sh))
-            (sdl2:render-copy renderer
-                              sdl-texture
-                              :source-rect source-rect
-                              :dest-rect dest-rect)))))))
+          (setf (sdl2:rect-x dest-rect) (ceiling (x dest-pos)))
+          (setf (sdl2:rect-y dest-rect) (ceiling (y dest-pos)))
+          (sdl2:render-copy renderer
+                            sdl-texture
+                            :source-rect source-rect
+                            :dest-rect dest-rect))))))

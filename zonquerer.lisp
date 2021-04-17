@@ -32,43 +32,10 @@
 
 (in-package #:zonquerer/zonquerer)
 
-(defclass zonquerer (standard-game)
-  ((map-start-position :initform #C(0 0) :accessor map-start-position)
-   (tile-map :initform nil :accessor tile-map)
-   (anim :initform nil :accessor anim)))
+;;;; Cursor management
 
-(defun update-map-scrolling (game dt)
-  (destructure-point (mx my) (mouse-position game)
-    (destructure-point (vw vh) (video-dimensions game)
-      (destructure-point (tmw tmh) (dimensions (tile-map game))
-        (let ((margin 1)
-              (c :cursor-select)
-              (pos (map-start-position game)))
-          (when (< mx margin)
-            (setf c :cursor-left)
-            (when (plusp (x pos))
-              (setf pos (- pos (* dt #C(200 0))))))
-          (when (> mx (- vw margin 1))
-            (setf c :cursor-right)
-            (when (< (x pos) (- tmw vw))
-              (setf pos (+ pos (* dt #C(200 0))))))
-          (when (< my margin)
-            (setf c :cursor-up)
-            (when (plusp (y pos))
-              (setf pos (- pos (* dt #C(0 200))))))
-          (when (> my (- vh margin 1))
-            (setf c :cursor-down)
-            (when (< (y pos) (- tmh vh))
-              (setf pos (+ pos (* dt #C(0 200))))))
-          (request-cursor game c)
-          (setf (map-start-position game) pos))))))
-
-(defmethod update ((game zonquerer) dt)
-  (update-map-scrolling game dt))
-
-(defmethod draw ((game zonquerer) dt)
-  (render-map (tile-map game) (map-start-position game))
-  (funcall (anim game) (mouse-position game) dt))
+(defclass cursors-mixin ()
+  ())
 
 (defvar *cursor-hotspots*
   '((:cursor-select 16 16)
@@ -77,15 +44,71 @@
     (:cursor-up 16 0)
     (:cursor-down 16 31)))
 
-(defun setup-cursors (game)
+(defmethod event-loop :before ((game cursors-mixin))
   (loop for (cursor-name hx hy) in *cursor-hotspots*
         do (intern-resource game 'cursor cursor-name :hot (point hx hy)))
   (request-cursor game :cursor-select))
 
+;;;; Tile map rendering & scrolling
+
+(defclass tile-map-mixin (cursors-mixin)
+  ((map-start-position :initform #C(0 0) :accessor map-start-position)
+   (tile-map-renderer :initform nil :accessor tile-map-renderer)
+   (tile-map-scroller :initform nil :accessor tile-map-scroller)))
+
+(defun make-tile-map-scroller (tile-map)
+  (let ((game (game tile-map))
+        (margin 1))
+    (destructure-point (vw vh) (video-dimensions game)
+      (destructure-point (tmw tmh) (dimensions tile-map)
+        (lambda (dt)
+          (destructure-point (mx my) (mouse-position game)
+            (let ((pos (map-start-position game))
+                  (c :cursor-select))
+              (when (< mx margin)
+                (setf c :cursor-left)
+                (when (plusp (x pos))
+                  (setf pos (- pos (* dt #C(200 0))))))
+              (when (> mx (- vw margin 1))
+                (setf c :cursor-right)
+                (when (< (x pos) (- tmw vw))
+                  (setf pos (+ pos (* dt #C(200 0))))))
+              (when (< my margin)
+                (setf c :cursor-up)
+                (when (plusp (y pos))
+                  (setf pos (- pos (* dt #C(0 200))))))
+              (when (> my (- vh margin 1))
+                (setf c :cursor-down)
+                (when (< (y pos) (- tmh vh))
+                  (setf pos (+ pos (* dt #C(0 200))))))
+              (request-cursor game c)
+              (setf (map-start-position game) pos))))))))
+
+(defmethod update :before ((game tile-map-mixin) dt)
+  (funcall (tile-map-scroller game) dt))
+
+(defmethod draw :before ((game tile-map-mixin) dt)
+  (declare (ignore dt))
+  (funcall (tile-map-renderer game) (map-start-position game)))
+
+(defmethod event-loop :before ((game tile-map-mixin))
+  (let ((tile-map (intern-resource game 'tile-map :map-01)))
+    (setf (tile-map-renderer game) (external tile-map))
+    (setf (tile-map-scroller game) (make-tile-map-scroller tile-map))))
+
+;;;; Zonquerer game
+
+(defclass zonquerer (tile-map-mixin standard-game)
+  ((anim :initform nil :accessor anim)))
+
+(defmethod update ((game zonquerer) dt)
+  (declare (ignore dt)))
+
+(defmethod draw ((game zonquerer) dt)
+  (funcall (anim game) (mouse-position game) dt))
+
 (defmethod event-loop :before ((game zonquerer))
-  (setup-cursors game)
-  (setf (tile-map game) (intern-resource game 'tile-map :map-01))
-  (setf (anim game) (sprite-animator (intern-resource game 'sprite-sheet :unit) :down)))
+  (setf (anim game) (funcall (external (intern-resource game 'sprite-sheet :unit)) :down)))
 
 (defun play ()
   (driver (make-instance 'zonquerer)))
