@@ -137,7 +137,7 @@
   (sdl2:with-init (:video)
     (destructure-point (width height) (video-dimensions game)
       (sdl2:with-window (window :w 0 :h 0 :flags '(:shown :fullscreen-desktop))
-        (sdl2:with-renderer (renderer window :flags '(:accelerated))
+        (sdl2:with-renderer (renderer window :flags '(:accelerated :presentvsync))
           (sdl2-ffi.functions:sdl-set-hint sdl2-ffi:+sdl-hint-render-scale-quality+ "nearest")
           (sdl2-ffi.functions:sdl-render-set-logical-size renderer width height)
           (sdl2-ffi.functions:sdl-set-window-grab window :true)
