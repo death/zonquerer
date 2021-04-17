@@ -61,6 +61,8 @@
         (margin 1))
     (destructure-point (vw vh) (video-dimensions game)
       (destructure-point (tmw tmh) (dimensions tile-map)
+        ;; Account for panel.
+        (incf tmh 50)
         (lambda (dt)
           (destructure-point (mx my) (mouse-position game)
             (let ((pos (map-start-position game))
