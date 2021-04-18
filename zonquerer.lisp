@@ -32,10 +32,14 @@
 
 (in-package #:zonquerer/zonquerer)
 
-;;;; Cursor management
+(defclass zonquerer (standard-game)
+  ((map-start-position :initform #C(0 0) :accessor map-start-position)
+   (map-renderer :initform nil :accessor map-renderer)
+   (map-scroller :initform nil :accessor map-scroller)
+   (panel-height :initform 50 :reader panel-height)
+   (anim :initform nil :accessor anim)))
 
-(defclass cursors-mixin ()
-  ())
+;;;; Cursors
 
 (defvar *cursor-hotspots*
   '((:cursor-select 16 16)
@@ -44,25 +48,30 @@
     (:cursor-up 16 0)
     (:cursor-down 16 31)))
 
-(defmethod event-loop :before ((game cursors-mixin))
+(defun setup-cursors (game)
   (loop for (cursor-name hx hy) in *cursor-hotspots*
         do (intern-resource game 'cursor cursor-name :hot (point hx hy)))
   (request-cursor game :cursor-select))
 
-;;;; Tile map rendering & scrolling
+;;;; Panel
 
-(defclass tile-map-mixin (cursors-mixin)
-  ((map-start-position :initform #C(0 0) :accessor map-start-position)
-   (tile-map-renderer :initform nil :accessor tile-map-renderer)
-   (tile-map-scroller :initform nil :accessor tile-map-scroller)))
+(defun draw-panel (game dt)
+  (declare (ignore dt))
+  (let ((dest-rect (sdl2:make-rect 0 150 320 50)))
+    (sdl2:render-copy (renderer game)
+                      (external (intern-resource game 'texture :panel))
+                      :dest-rect dest-rect)
+    (sdl2:free-rect dest-rect)))
 
-(defun make-tile-map-scroller (tile-map)
+;;;; Map
+
+(defun make-map-scroller (tile-map)
   (let ((game (game tile-map))
         (margin 1))
     (destructure-point (vw vh) (video-dimensions game)
       (destructure-point (tmw tmh) (dimensions tile-map)
         ;; Account for panel.
-        (incf tmh 50)
+        (incf tmh (panel-height game))
         (lambda (dt)
           (destructure-point (mx my) (mouse-position game)
             (let ((pos (map-start-position game))
@@ -86,35 +95,31 @@
               (request-cursor game c)
               (setf (map-start-position game) pos))))))))
 
-(defmethod update :before ((game tile-map-mixin) dt)
-  (funcall (tile-map-scroller game) dt))
+(defun update-map (game dt)
+  (funcall (map-scroller game) dt))
 
-(defmethod draw :before ((game tile-map-mixin) dt)
+(defun draw-map (game dt)
   (declare (ignore dt))
-  (funcall (tile-map-renderer game) (map-start-position game)))
+  (funcall (map-renderer game) (map-start-position game)))
 
-(defmethod event-loop :before ((game tile-map-mixin))
+(defun setup-map (game)
   (let ((tile-map (intern-resource game 'tile-map :map-01)))
-    (setf (tile-map-renderer game) (external tile-map))
-    (setf (tile-map-scroller game) (make-tile-map-scroller tile-map))))
+    (setf (map-renderer game) (external tile-map))
+    (setf (map-scroller game) (make-map-scroller tile-map))))
 
-;;;; Zonquerer game
-
-(defclass zonquerer (tile-map-mixin standard-game)
-  ((anim :initform nil :accessor anim)))
+;;;; The game
 
 (defmethod update ((game zonquerer) dt)
-  (declare (ignore dt)))
+  (update-map game dt))
 
 (defmethod draw ((game zonquerer) dt)
-  (let ((dest-rect (sdl2:make-rect 0 150 320 50)))
-    (sdl2:render-copy (renderer game)
-                      (external (intern-resource game 'texture :panel))
-                      :dest-rect dest-rect)
-    (sdl2:free-rect dest-rect))
+  (draw-map game dt)
+  (draw-panel game dt)
   (funcall (anim game) (mouse-position game) dt))
 
 (defmethod event-loop :before ((game zonquerer))
+  (setup-cursors game)
+  (setup-map game)
   (setf (anim game) (funcall (external (intern-resource game 'sprite-sheet :unit)) :down)))
 
 (defun play ()
