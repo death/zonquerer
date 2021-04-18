@@ -27,6 +27,8 @@
   (:import-from
    #:alexandria)
   (:import-from
+   #:split-sequence)
+  (:import-from
    #:com.gigamonkeys.json)
   (:export
    #:check
@@ -38,7 +40,7 @@
    #:make-asset-filename
    #:read-json-file
    #:remove-suffix
-   #:as-keyword))
+   #:make-keyword-list))
 
 (in-package #:zonquerer/utils)
 
@@ -91,5 +93,9 @@
       (subseq sequence 0 (- (length sequence) (length suffix)))
       sequence))
 
-(defun as-keyword (string-designator)
-  (alexandria:make-keyword (string-upcase string-designator)))
+(defun make-keyword-list (string)
+  (let ((tokens
+          (split-sequence:split-sequence #\Space string :remove-empty-subseqs t)))
+    (mapcar (lambda (token)
+              (alexandria:make-keyword (string-upcase token)))
+            tokens)))

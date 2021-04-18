@@ -37,7 +37,7 @@
    (map-renderer :initform nil :accessor map-renderer)
    (map-scroller :initform nil :accessor map-scroller)
    (panel-height :initform 50 :reader panel-height)
-   (anim :initform nil :accessor anim)))
+   (units :initform '() :accessor units)))
 
 ;;;; Cursors
 
@@ -107,20 +107,65 @@
     (setf (map-renderer game) (external tile-map))
     (setf (map-scroller game) (make-map-scroller tile-map))))
 
+;;;; Units
+
+(defclass unit ()
+  ((game :initarg :game :reader game)
+   (position-on-map :initarg :position-on-map :reader position-on-map)
+   (heading :initarg :heading :reader heading)
+   (state :initarg :state :reader state)
+   (anim :initform nil :accessor anim)))
+
+(defun position-on-screen (unit)
+  (- (position-on-map unit)
+     (map-start-position (game unit))))
+
+(defmethod initialize-instance :after ((unit unit) &key)
+  (let* ((game (game unit))
+         (sprite-sheet (intern-resource game 'sprite-sheet :unit))
+         (animator (external sprite-sheet))
+         (state (state unit))
+         (heading (heading unit))
+         (tag (list state heading)))
+    (setf (anim unit) (funcall animator tag))))
+
+(defun update-unit (unit dt)
+  (declare (ignore unit dt)))
+
+(defun draw-unit (unit dt)
+  (funcall (anim unit)
+           (position-on-screen unit)
+           dt))
+
+(defun setup-units (game)
+  (dotimes (i 4)
+    (let ((unit (make-instance 'unit
+                               :game game
+                               :position-on-map (point (+ (* i 50) 50)
+                                                       (if (evenp i) 40 20))
+                               :state (if (= i 1)
+                                          :walk
+                                          :idle)
+                               :heading :down)))
+      (push unit (units game)))))
+
 ;;;; The game
 
 (defmethod update ((game zonquerer) dt)
-  (update-map game dt))
+  (update-map game dt)
+  (dolist (unit (units game))
+    (update-unit unit dt)))
 
 (defmethod draw ((game zonquerer) dt)
   (draw-map game dt)
-  (draw-panel game dt)
-  (funcall (anim game) (mouse-position game) dt))
+  (dolist (unit (units game))
+    (draw-unit unit dt))
+  (draw-panel game dt))
 
 (defmethod event-loop :before ((game zonquerer))
   (setup-cursors game)
   (setup-map game)
-  (setf (anim game) (funcall (external (intern-resource game 'sprite-sheet :unit)) :down)))
+  (setup-units game))
 
 (defun play ()
   (driver (make-instance 'zonquerer)))
