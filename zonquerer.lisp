@@ -38,7 +38,8 @@
    (map-scroller :initform nil :accessor map-scroller)
    (panel-height :initform 50 :reader panel-height)
    (units :initform '() :accessor units)
-   (selection-event-buildup :initform nil :accessor selection-event-buildup)))
+   (selection-event-buildup :initform nil :accessor selection-event-buildup)
+   (string-renderer :initform nil :accessor string-renderer)))
 
 ;;;; Cursors
 
@@ -63,6 +64,16 @@
                       (external (intern-resource game 'texture :panel))
                       :dest-rect dest-rect)
     (sdl2:free-rect dest-rect)))
+
+;;;; Font
+
+(defun setup-font (game)
+  (let ((font (intern-resource game
+                               'font
+                               :tinyfont
+                               :alphabet "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-!?%():;/\\.^*<>[]{}='\"`,~abcdefghi"
+                               :glyph-dimensions #C(3 5))))
+    (setf (string-renderer game) (external font))))
 
 ;;;; Map
 
@@ -241,7 +252,8 @@
 (defmethod game-loop :before ((game zonquerer))
   (setup-cursors game)
   (setup-map game)
-  (setup-units game))
+  (setup-units game)
+  (setup-font game))
 
 (defmethod mouse-event ((game zonquerer) (state (eql :down)) (button (eql 1)) position)
   (let ((keys (keys game)))

@@ -368,7 +368,8 @@
 
 (defmethod create-resource ((game game) (kind (eql 'font)) name
                             &key (alphabet "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-+")
-                                 (glyph-dimensions #C(8 10)))
+                                 (glyph-dimensions #C(8 10))
+                                 (spacing 1))
   (let* ((texture (intern-resource game 'texture name))
          (alphabet-table (make-hash-table))
          (font (make-instance 'font
@@ -382,7 +383,7 @@
             for i upfrom 0
             do (setf (gethash char alphabet-table)
                      (sdl2:make-rect (* i gw) 0 gw gh)))
-      (let ((next-pos-in-line (point (x glyph-dimensions) 0))
+      (let ((next-pos-in-line (point (+ (x glyph-dimensions) spacing) 0))
             (sdl-texture (external texture))
             (weird-chars (make-hash-table))
             (dest-rect (sdl2:make-rect 0 0 gw gh))
