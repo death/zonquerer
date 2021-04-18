@@ -171,6 +171,12 @@
   ((start-position :initarg :start-position :accessor start-position)
    (end-position :initarg :end-position :accessor end-position)))
 
+(defclass selection-union-event (selection-event)
+  ())
+
+(defclass selection-toggle-event (selection-event)
+  ())
+
 (defun selection-bounds (start-position end-position)
   (values (floor (min (x start-position) (x end-position)))
           (floor (min (y start-position) (y end-position)))
@@ -206,6 +212,17 @@
   (dolist (unit (units-in-selection game event))
     (setf (selectedp unit) t)))
 
+(defmethod process-event ((game zonquerer) (event selection-union-event) dt)
+  (declare (ignore dt))
+  (dolist (unit (units-in-selection game event))
+    (setf (selectedp unit) t)))
+
+(defmethod process-event ((game zonquerer) (event selection-toggle-event) dt)
+  (declare (ignore dt))
+  (dolist (unit (units-in-selection game event))
+    (setf (selectedp unit)
+          (not (selectedp unit)))))
+
 ;;;; The game
 
 (defmethod update ((game zonquerer) dt)
@@ -227,10 +244,16 @@
   (setup-units game))
 
 (defmethod mouse-event ((game zonquerer) (state (eql :down)) (button (eql 1)) position)
-  (setf (selection-event-buildup game)
-        (make-instance 'selection-event
-                       :start-position (+ (map-start-position game) position)
-                       :end-position nil)))
+  (let ((keys (keys game)))
+    (setf (selection-event-buildup game)
+          (make-instance (cond ((member :scancode-lshift keys)
+                                'selection-union-event)
+                               ((member :scancode-lctrl keys)
+                                'selection-toggle-event)
+                               (t
+                                'selection-event))
+                         :start-position (+ (map-start-position game) position)
+                         :end-position nil))))
 
 (defmethod mouse-event ((game zonquerer) (state (eql :up)) (button (eql 1)) position)
   (let ((selection-event (selection-event-buildup game)))
