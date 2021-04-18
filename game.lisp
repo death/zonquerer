@@ -166,4 +166,5 @@
           (setf (renderer game) renderer)
           (unwind-protect
                (game-loop game)
-            (free-all-resources game)))))))
+            (free-all-resources game))))))
+  game)

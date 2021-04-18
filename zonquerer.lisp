@@ -34,6 +34,7 @@
 
 (defclass zonquerer (standard-game)
   ((map-start-position-float :initform #C(0.0 0.0) :accessor map-start-position-float)
+   (map-dimensions :initform nil :accessor map-dimensions)
    (map-renderer :initform nil :accessor map-renderer)
    (map-scroller :initform nil :accessor map-scroller)
    (panel-height :initform 50 :reader panel-height)
@@ -121,13 +122,15 @@
 
 (defun setup-map (game)
   (let ((tile-map (intern-resource game 'tile-map :map-01)))
+    (setf (map-dimensions game) (dimensions tile-map))
     (setf (map-renderer game) (external tile-map))
     (setf (map-scroller game) (make-map-scroller tile-map))))
 
 ;;;; Units
 
-(defconstant unit-width 16)
-(defconstant unit-height 16)
+(defconstant unit-dim 16)
+
+(defconstant unit-dim-1 (1- unit-dim))
 
 (defclass unit ()
   ((game :initarg :game :reader game)
@@ -135,7 +138,8 @@
    (heading :initarg :heading :reader heading)
    (state :initarg :state :reader state)
    (selected :initform nil :accessor selectedp)
-   (anim :initform nil :accessor anim)))
+   (anim :initform nil :accessor anim)
+   (action :initform nil :accessor action)))
 
 (defun position-on-screen (unit)
   (- (position-on-map unit)
@@ -160,8 +164,8 @@
       (sdl2-ffi.functions:rectangle-rgba (renderer (game unit))
                                          (x pos)
                                          (y pos)
-                                         (+ unit-width (x pos))
-                                         (+ unit-height (y pos))
+                                         (+ unit-dim (x pos))
+                                         (+ unit-dim (y pos))
                                          #xFF #xFF #xFF #x7F))))
 
 (defun setup-units (game)
@@ -175,6 +179,9 @@
                                           :idle)
                                :heading :down)))
       (push unit (units game)))))
+
+(defun selected-units (game)
+  (remove-if-not #'selectedp (units game)))
 
 ;;;; Selection
 
@@ -210,8 +217,8 @@
       (selection-bounds (start-position selection-event)
                         (end-position selection-event))
     (flet ((insidep (point)
-             (and (<= left (+ (x point) unit-width -1) (+ right unit-width -1))
-                  (<= top (+ (y point) unit-height -1) (+ bottom unit-height -1)))))
+             (and (<= left (+ (x point) unit-dim-1) (+ right unit-dim-1))
+                  (<= top (+ (y point) unit-dim-1) (+ bottom unit-dim-1)))))
       (remove-if-not #'insidep
                      (units game)
                      :key #'position-on-map))))
@@ -233,6 +240,19 @@
   (dolist (unit (units-in-selection game event))
     (setf (selectedp unit)
           (not (selectedp unit)))))
+
+;;;; Unit Movement
+
+(defclass move-event (standard-event)
+  ((units :initarg :units :reader units)
+   (destination :initarg :destination :reader destination)))
+
+(defmethod process-event ((game zonquerer) (event move-event) dt)
+  (declare (ignore dt))
+  (let ((destination (destination event)))
+    (dolist (unit (units event))
+      (setf (action unit)
+            (list :move destination)))))
 
 ;;;; The game
 
@@ -274,6 +294,15 @@
                  (+ (map-start-position game) position))
            (push-event game selection-event)
            (setf (selection-event-buildup game) nil)))))
+
+(defmethod mouse-event ((game zonquerer) (state (eql :down)) (button (eql 3)) position)
+  (let ((units (selected-units game)))
+    (when units
+      (let ((move-event
+              (make-instance 'move-event
+                             :units units
+                             :destination (+ (map-start-position game) position))))
+        (push-event game move-event)))))
 
 (defun play ()
   (driver (make-instance 'zonquerer)))
