@@ -26,7 +26,8 @@
    #:zonquerer/protocols
    #:zonquerer/resources
    #:zonquerer/utils
-   #:zonquerer/game)
+   #:zonquerer/game
+   #:zonquerer/a-star)
   (:export
    #:play))
 
@@ -132,14 +133,20 @@
 
 (defconstant unit-dim-1 (1- unit-dim))
 
+(defconstant unit-center
+  (point (truncate unit-dim 2)
+         (truncate unit-dim 2)))
+
 (defclass unit ()
   ((game :initarg :game :reader game)
-   (position-on-map :initarg :position-on-map :reader position-on-map)
+   (position-on-map :initarg :position-on-map :accessor position-on-map)
    (heading :initarg :heading :reader heading)
-   (state :initarg :state :reader state)
+   (state :initform nil :accessor state)
    (selected :initform nil :accessor selectedp)
+   (animator :initform nil :accessor animator)
    (anim :initform nil :accessor anim)
-   (action :initform nil :accessor action)))
+   (action :initform nil :accessor action)
+   (path-to-walk :initform '() :accessor path-to-walk)))
 
 (defun position-on-screen (unit)
   (- (position-on-map unit)
@@ -148,25 +155,65 @@
 (defmethod initialize-instance :after ((unit unit) &key)
   (let* ((game (game unit))
          (sprite-sheet (intern-resource game 'sprite-sheet :unit))
-         (animator (external sprite-sheet))
-         (state (state unit))
-         (heading (heading unit))
-         (tag (list state heading)))
-    (setf (anim unit) (funcall animator tag))))
+         (animator (external sprite-sheet)))
+    (setf (animator unit) animator)
+    (setf (state unit) :idle)))
+
+(defmethod (setf state) :around (new-state (unit unit))
+  (let ((old-state (state unit)))
+    (prog1 (call-next-method)
+      (unless (eq old-state new-state)
+        (let* ((heading (heading unit))
+               (tag (list new-state heading)))
+          (setf (anim unit) (funcall (animator unit) tag)))))))
 
 (defun update-unit (unit dt)
-  (declare (ignore unit dt)))
+  (declare (ignore dt))
+  (when (eq (car (action unit)) :move)
+    (setf (path-to-walk unit)
+          (compute-path-to-walk (game unit)
+                                (position-on-map unit)
+                                (- (cadr (action unit)) unit-center)))
+    (setf (action unit) nil))
+  (let ((next-position (pop (path-to-walk unit))))
+    (cond (next-position
+           (setf (state unit) :walk)
+           (setf (position-on-map unit) next-position))
+          (t
+           (setf (state unit) :idle)))))
+
+(defun compute-path-to-walk (game start-position goal-position)
+  (reverse
+   (a-star start-position
+           :goal-state-p (lambda (position)
+                           (= position goal-position))
+           :heuristic (lambda (position)
+                        (abs (- position goal-position)))
+           :expand (lambda (position)
+                     (loop for direction in '(#C(1 0)
+                                              #C(0 1)
+                                              #C(-1 0)
+                                              #C(0 -1))
+                           for new-position = (+ position direction)
+                           collect (list (abs (- position new-position))
+                                         new-position))))))
 
 (defun draw-unit (unit dt)
   (let ((pos (position-on-screen unit)))
     (funcall (anim unit) pos dt)
     (when (selectedp unit)
       (sdl2-ffi.functions:rectangle-rgba (renderer (game unit))
-                                         (x pos)
-                                         (y pos)
-                                         (+ unit-dim (x pos))
-                                         (+ unit-dim (y pos))
-                                         #xFF #xFF #xFF #x7F))))
+                                         (1- (x pos))
+                                         (1- (y pos))
+                                         (+ 1 unit-dim (x pos))
+                                         (+ 1 unit-dim (y pos))
+                                         #xFF #xFF #xFF #x7F))
+    (dolist (pos (path-to-walk unit))
+      (let ((spos (- pos (map-start-position (game unit)))))
+        (sdl2-ffi.functions:pixel-rgba (renderer (game unit))
+                                       (x spos)
+                                       (y spos)
+                                       #x00 #x00 #x00 #x7F)))))
 
 (defun setup-units (game)
   (dotimes (i 4)
@@ -174,9 +221,6 @@
                                :game game
                                :position-on-map (point (+ (* i 50) 50)
                                                        (if (evenp i) 40 20))
-                               :state (if (= i 1)
-                                          :walk
-                                          :idle)
                                :heading :down)))
       (push unit (units game)))))
 
