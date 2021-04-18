@@ -28,8 +28,9 @@
    #:video-dimensions
    #:keys
    #:mouse-position
+   #:mouse-event
    #:request-cursor
-   #:event-loop
+   #:game-loop
    #:update
    #:draw
    #:find-resource
@@ -37,6 +38,8 @@
    #:free-all-resources
    #:remove-resource
    #:assets-directory
+   #:push-event
+   #:process-event
    #:resource
    #:game
    #:key
@@ -44,7 +47,8 @@
    #:who-depends
    #:depends-on
    #:depend-on
-   #:free))
+   #:free
+   #:event))
 
 (in-package #:zonquerer/protocols)
 
@@ -59,9 +63,11 @@
 
 (defgeneric mouse-position (game))
 
+(defgeneric mouse-event (game state button position))
+
 (defgeneric request-cursor (game name))
 
-(defgeneric event-loop (game))
+(defgeneric game-loop (game))
 
 (defgeneric update (game dt))
 
@@ -78,6 +84,10 @@
 (defgeneric remove-resource (game kind name))
 
 (defgeneric assets-directory (game))
+
+(defgeneric push-event (game event))
+
+(defgeneric process-event (game event dt))
 
 (defclass resource ()
   ())
@@ -97,3 +107,6 @@
 (defgeneric depend-on (resource1 resource2))
 
 (defgeneric free (resource))
+
+(defclass event ()
+  ())

@@ -34,6 +34,7 @@
    #:autowrap)
   (:export
    #:standard-game
+   #:standard-event
    #:driver))
 
 (in-package #:zonquerer/game)
@@ -48,7 +49,21 @@
    (current-cursor :initform nil :accessor current-cursor)
    (next-cursor :initform nil :accessor next-cursor)
    (assets-directory :initform #p"/home/death/lisp/zonquerer/assets/" :reader assets-directory)
-   (resources :initform (make-hash-table :test 'equal) :reader resources)))
+   (resources :initform (make-hash-table :test 'equal) :reader resources)
+   (events :initform '() :accessor events)))
+
+(defclass standard-event (event)
+  ())
+
+(defmethod push-event ((game standard-game) event)
+  (setf (events game) (nconc (events game) (list event))))
+
+(defun pop-event (game)
+  (pop (events game)))
+
+(defmethod process-event ((game standard-game) event dt)
+  (declare (ignore dt))
+  (warn "Unprocessed event ~S." event))
 
 (defmethod find-resource ((game standard-game) kind name)
   (gethash (list kind name) (resources game)))
@@ -67,6 +82,11 @@
 (defmethod remove-resource ((game standard-game) kind name)
   (remhash (list kind name) (resources game)))
 
+(defmethod update :before ((game standard-game) dt)
+  (loop for event = (pop-event game)
+        while event
+        do (process-event game event dt)))
+
 (defmethod update :after ((game standard-game) dt)
   (declare (ignore dt))
   (when (member :scancode-escape (keys game))
@@ -79,13 +99,14 @@
     (when (not (eq current-cursor next-cursor))
       (set-cursor game next-cursor)))
   (let ((renderer (renderer game)))
+    (sdl2:set-render-draw-color renderer 0 0 0 255)
     (sdl2:render-clear renderer)
     (call-next-method)
     (sdl2:render-present renderer)))
 
-(defun mouse-event (game state button position)
-  (declare (ignore game))
-  (format t "Mouse event ~S~%" (list state button position)))
+(defmethod mouse-event ((game standard-game) state button position)
+  ;; Do nothing.
+  )
 
 (defun window-event (game id)
   (declare (ignore game))
@@ -99,7 +120,7 @@
    (external (intern-resource game 'cursor name)))
   (setf (current-cursor game) name))
 
-(defmethod event-loop ((game standard-game))
+(defmethod game-loop ((game standard-game))
   (setf (ticks game) (sdl2:get-ticks))
   (sdl2:with-event-loop (:recursive t)
     (:quit () t)
@@ -141,9 +162,8 @@
           (sdl2-ffi.functions:sdl-set-hint sdl2-ffi:+sdl-hint-render-scale-quality+ "nearest")
           (sdl2-ffi.functions:sdl-render-set-logical-size renderer width height)
           (sdl2-ffi.functions:sdl-set-window-grab window :true)
-          (sdl2:set-render-draw-color renderer 0 0 0 255)
           (setf (window game) window)
           (setf (renderer game) renderer)
           (unwind-protect
-               (event-loop game)
+               (game-loop game)
             (free-all-resources game)))))))

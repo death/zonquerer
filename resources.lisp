@@ -204,8 +204,8 @@
               (multiple-value-bind (row col) (truncate n columns)
                 (setf (sdl2:rect-x sr) (* col tile-width))
                 (setf (sdl2:rect-y sr) (* row tile-height))
-                (setf (sdl2:rect-x dr) (ceiling (x dest-pos)))
-                (setf (sdl2:rect-y dr) (ceiling (y dest-pos)))
+                (setf (sdl2:rect-x dr) (x dest-pos))
+                (setf (sdl2:rect-y dr) (y dest-pos))
                 (sdl2:render-copy renderer sdl-texture :source-rect sr :dest-rect dr)))))
     tile-set))
 
@@ -352,8 +352,8 @@
                    (setf wait-ms (aref durations frame)))
           (decf wait-ms (- now-ms time-ms))
           (setf time-ms now-ms)
-          (setf (sdl2:rect-x dest-rect) (ceiling (x dest-pos)))
-          (setf (sdl2:rect-y dest-rect) (ceiling (y dest-pos)))
+          (setf (sdl2:rect-x dest-rect) (x dest-pos))
+          (setf (sdl2:rect-y dest-rect) (y dest-pos))
           (sdl2:render-copy renderer
                             sdl-texture
                             :source-rect source-rect
