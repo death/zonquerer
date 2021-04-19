@@ -37,6 +37,10 @@
    #:y
    #:point
    #:destructure-point
+   #:truncate-point
+   #:signum-point
+   #:*taxicab-directions*
+   #:*all-directions-including-diagonals*
    #:make-asset-filename
    #:read-json-file
    #:remove-suffix
@@ -76,6 +80,21 @@
             (,x (x ,var))
             (,y (y ,var)))
        ,@body)))
+
+(defun truncate-point (point &optional (divisor 1))
+  (point (truncate (x point) divisor)
+         (truncate (y point) divisor)))
+
+(defun signum-point (point)
+  (point (signum (x point))
+         (signum (y point))))
+
+(defvar *taxicab-directions*
+  '(#C(1 0) #C(0 1) #C(-1 0) #C(0 -1)))
+
+(defvar *all-directions-including-diagonals*
+  '(#C(1 0) #C(0 1) #C(-1 0) #C(0 -1)
+    #C(-1 -1) #C(1 1) #C(-1 1) #C(1 -1)))
 
 (defun make-asset-filename (game name type)
   (merge-pathnames

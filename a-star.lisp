@@ -55,7 +55,8 @@
                           (failure-p (constantly nil))
                           heuristic
                           expand
-                          equiv-p)
+                          equiv-p
+                          (max-cost most-positive-fixnum))
   "Search for a goal state using the A* algorithm.
 
 If a goal state is found, return the path from the initial state to
@@ -107,7 +108,7 @@ are equal under FSET:COMPARE."
                                 (t
                                  (let ((next-cost (+ (fset:lookup best-cost-to (wrap node)) edge-cost)))
                                    (when (< next-cost (or (fset:lookup best-cost-to (wrap next-node))
-                                                          most-positive-fixnum))
+                                                          max-cost))
                                      (setf came-from (fset:with came-from (wrap next-node) node))
                                      (setf best-cost-to (fset:with best-cost-to (wrap next-node) next-cost))
                                      (pileup:heap-insert (list (+ next-cost (funcall heuristic next-node))
