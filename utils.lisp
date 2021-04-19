@@ -44,7 +44,8 @@
    #:make-asset-filename
    #:read-json-file
    #:remove-suffix
-   #:make-keyword-list))
+   #:make-keyword-list
+   #:noop))
 
 (in-package #:zonquerer/utils)
 
@@ -118,3 +119,7 @@
     (mapcar (lambda (token)
               (alexandria:make-keyword (string-upcase token)))
             tokens)))
+
+(defun noop (&rest whatever)
+  (declare (ignore whatever))
+  (values))

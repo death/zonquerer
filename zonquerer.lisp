@@ -228,6 +228,7 @@
    (state :initform nil :accessor state)
    (selected :initform nil :accessor selectedp)
    (animator :initform nil :accessor animator)
+   (anim-count :initform 0 :accessor anim-count)
    (anim :initform nil :accessor anim)
    (action :initform nil :accessor action)
    (path-to-walk :initform '() :accessor path-to-walk)
@@ -246,7 +247,7 @@
          (sprite-sheet (intern-resource game 'sprite-sheet :unit))
          (animator (external sprite-sheet)))
     (setf (animator unit) animator)
-    (setf (state unit) :idle)
+    (setf (state unit) :become)
     (unit-occupy unit)))
 
 (defun unit-occupancy-cells (map-position)
@@ -278,7 +279,10 @@
       (unless (eq old-state new-state)
         (let* ((heading (heading unit))
                (tag (list new-state heading)))
-          (setf (anim unit) (funcall (animator unit) tag)))))))
+          (setf (anim-count unit) 0)
+          (setf (anim unit)
+                (funcall (animator unit) tag
+                         :on-last-frame (lambda () (incf (anim-count unit))))))))))
 
 (defun move-to-unoccupied-adjacent-cell (unit)
   (let ((cell (map-position-to-cell (position-on-map unit))))
@@ -358,6 +362,9 @@
                            ;; position, so find an adjacent cell to
                            ;; move to.
                            (move-to-unoccupied-adjacent-cell unit)))))))))
+      (:become
+       (when (plusp (anim-count unit))
+         (setf (state unit) :idle)))
       (:die
        (format t "TODO: Unit ~S is supposed to die.~%" unit)
        (setf (state unit) :idle)))))
