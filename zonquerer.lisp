@@ -28,6 +28,8 @@
    #:zonquerer/utils
    #:zonquerer/game
    #:zonquerer/a-star)
+  (:import-from
+   #:alexandria)
   (:export
    #:play))
 
@@ -35,7 +37,6 @@
 
 (defclass zonquerer (standard-game)
   ((map-start-position-float :initform #C(0.0 0.0) :accessor map-start-position-float)
-   (map-dimensions :initform nil :accessor map-dimensions)
    (map-renderer :initform nil :accessor map-renderer)
    (map-scroller :initform nil :accessor map-scroller)
    (panel-height :initform 50 :reader panel-height)
@@ -123,9 +124,10 @@
 
 (defun setup-map (game)
   (let ((tile-map (intern-resource game 'tile-map :map-01)))
-    (setf (map-dimensions game) (dimensions tile-map))
     (setf (map-renderer game) (external tile-map))
-    (setf (map-scroller game) (make-map-scroller tile-map))))
+    (setf (map-scroller game) (make-map-scroller tile-map))
+    (setf (occupancy-table game) (copy-occupancy-table (occupancy-table tile-map)))
+    (occupy-outer-borders (occupancy-table game) (dimensions tile-map))))
 
 ;;;; Occupancy Table
 
@@ -191,21 +193,18 @@
                                                (+ py unit-dim-1)
                                                #xFF #x00 #x00 #x1F))))))))))
 
-(defun make-occupancy-table (map-dimensions)
-  (let ((table (make-hash-table)))
-    (destructure-point (mw mh) (map-position-to-cell map-dimensions)
-      (occupy table (point -1 -1) t)
-      (dotimes (x (1+ mw))
-        (occupy table (point x -1) t)
-        (occupy table (point x mh) t))
-      (dotimes (y mh)
-        (occupy table (point -1 y) t)
-        (occupy table (point mw y) t)))
-    table))
+(defun occupy-outer-borders (occupancy-table map-dimensions)
+  (destructure-point (mw mh) (map-position-to-cell map-dimensions)
+    (occupy occupancy-table (point -1 -1) t)
+    (dotimes (x (1+ mw))
+      (occupy occupancy-table (point x -1) t)
+      (occupy occupancy-table (point x mh) t))
+    (dotimes (y mh)
+      (occupy occupancy-table (point -1 y) t)
+      (occupy occupancy-table (point mw y) t))))
 
-(defun setup-occupancy-table (game)
-  (setf (occupancy-table game)
-        (make-occupancy-table (map-dimensions game))))
+(defun copy-occupancy-table (occupancy-table)
+  (alexandria:copy-hash-table occupancy-table))
 
 ;;;; Units
 
@@ -508,7 +507,6 @@
 (defmethod game-loop :before ((game zonquerer))
   (setup-cursors game)
   (setup-map game)
-  (setup-occupancy-table game)
   (setup-units game)
   (setup-font game))
 

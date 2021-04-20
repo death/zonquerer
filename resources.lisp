@@ -38,6 +38,7 @@
    #:tile-set
    #:tile-map
    #:dimensions
+   #:occupancy-table
    #:sprite-sheet
    #:font))
 
@@ -175,6 +176,7 @@
    (tile-width :initarg :tile-width :reader tile-width)
    (tile-height :initarg :tile-height :reader tile-height)
    (tile-count :initarg :tile-count :reader tile-count)
+   (tile-props :initarg :tile-props :reader tile-props)
    (render-function :initform nil :accessor external)))
 
 (defmethod create-resource ((game game) (kind (eql 'tile-set)) name &key)
@@ -184,6 +186,8 @@
          (tile-width (gethash "tilewidth" json))
          (tile-height (gethash "tileheight" json))
          (tile-count (gethash "tilecount" json))
+         (tiles-json (gethash "tiles" json))
+         (tile-props (make-array tile-count :initial-element '()))
          (image-name (remove-suffix (gethash "image" json) ".png"))
          (texture (intern-resource game 'texture image-name))
          (tile-set (make-instance 'tile-set
@@ -192,8 +196,18 @@
                                   :columns columns
                                   :tile-width tile-width
                                   :tile-height tile-height
-                                  :tile-count tile-count)))
+                                  :tile-count tile-count
+                                  :tile-props tile-props)))
     (depend-on tile-set texture)
+    (loop for tile-json across tiles-json
+          for id = (gethash "id" tile-json)
+          for props-json = (gethash "properties" tile-json)
+          for props = (make-hash-table)
+          do (loop for prop across props-json
+                   for key = (gethash "name" prop)
+                   for value = (gethash "value" prop)
+                   do (setf (gethash (as-keyword key) props) value))
+             (setf (aref tile-props id) props))
     (let ((renderer (renderer game))
           (sdl-texture (external texture))
           (sr (sdl2:make-rect 0 0 tile-width tile-height))
@@ -209,10 +223,17 @@
                 (sdl2:render-copy renderer sdl-texture :source-rect sr :dest-rect dr)))))
     tile-set))
 
+(defun tile-property (tile-set n key &optional (default nil))
+  (let ((props (aref (tile-props tile-set) n)))
+    (if props
+        (gethash key props default)
+        default)))
+
 ;;;; Tile Map
 
 (defclass tile-map (standard-resource)
   ((dimensions :initform #C(0 0) :accessor dimensions)
+   (occupancy-table :initarg :occupancy-table :reader occupancy-table)
    (render-function :initform nil :accessor external)
    (sdl-texture :initform nil :accessor sdl-texture)))
 
@@ -225,7 +246,11 @@
          (tile-sets-json (gethash "tilesets" json))
          (tile-sets '())
          (layers '())
-         (tile-map (make-instance 'tile-map :name name :game game)))
+         (occupancy-table (make-hash-table))
+         (tile-map (make-instance 'tile-map
+                                  :name name
+                                  :game game
+                                  :occupancy-table occupancy-table)))
     (assert (= (length tile-sets-json) (length layers-json)))
     (dotimes (i (length tile-sets-json))
       (let* ((tile-set-json (aref tile-sets-json i))
@@ -256,14 +281,18 @@
       (setf (dimensions tile-map) (point width-in-pixels height-in-pixels))
       (setf (sdl-texture tile-map) sdl-texture)
       (sdl2:set-render-target renderer sdl-texture)
-      (loop for layer in layers
+      (loop for tile-set in tile-sets
+            for layer in layers
             for tw in tile-widths
             for th in tile-heights
             for render-tile in tile-renderers
             do (dotimes (row height)
                  (let ((pos (point 0 (* row th))))
                    (dotimes (col width)
-                     (let ((n (pop layer)))
+                     (let* ((n (pop layer))
+                            (occupy (tile-property tile-set n :occupy)))
+                       (when (eq occupy :true)
+                         (setf (gethash (point col row) occupancy-table) occupy))
                        (funcall render-tile n pos)
                        (incf pos (point tw 0)))))))
       (sdl2:set-render-target renderer nil)

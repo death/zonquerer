@@ -44,6 +44,7 @@
    #:make-asset-filename
    #:read-json-file
    #:remove-suffix
+   #:as-keyword
    #:make-keyword-list
    #:noop))
 
@@ -113,12 +114,13 @@
       (subseq sequence 0 (- (length sequence) (length suffix)))
       sequence))
 
+(defun as-keyword (string)
+  (alexandria:make-keyword (string-upcase string)))
+
 (defun make-keyword-list (string)
   (let ((tokens
           (split-sequence:split-sequence #\Space string :remove-empty-subseqs t)))
-    (mapcar (lambda (token)
-              (alexandria:make-keyword (string-upcase token)))
-            tokens)))
+    (mapcar #'as-keyword tokens)))
 
 (defun noop (&rest whatever)
   (declare (ignore whatever))
