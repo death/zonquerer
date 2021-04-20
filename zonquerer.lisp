@@ -219,8 +219,8 @@
 (defclass unit ()
   ((game :initarg :game :reader game)
    (position-on-map-float :initarg :position-on-map :accessor position-on-map-float)
-   (heading :initarg :heading :reader heading)
-   (state :initform nil :accessor state)
+   (facing :initform :down :accessor facing)
+   (state :initform :become :accessor state)
    (selected :initform nil :accessor selectedp)
    (animator :initform nil :accessor animator)
    (anim-count :initform 0 :accessor anim-count)
@@ -242,7 +242,7 @@
          (sprite-sheet (intern-resource game 'sprite-sheet :unit))
          (animator (external sprite-sheet)))
     (setf (animator unit) animator)
-    (setf (state unit) :become)
+    (reset-animation unit)
     (unit-occupy unit)))
 
 (defun unit-occupancy-cells (map-position)
@@ -265,16 +265,24 @@
             (occupy game cell object)))
         (error "Unit ~S can't occupy position ~S with object ~S." unit pos object))))
 
+(defun reset-animation (unit)
+  (let ((tag (list (state unit) (facing unit))))
+    (setf (anim-count unit) 0)
+    (setf (anim unit)
+          (funcall (animator unit) tag
+                   :on-last-frame (lambda () (incf (anim-count unit)))))))
+
 (defmethod (setf state) :around (new-state (unit unit))
   (let ((old-state (state unit)))
     (prog1 (call-next-method)
       (unless (eq old-state new-state)
-        (let* ((heading (heading unit))
-               (tag (list new-state heading)))
-          (setf (anim-count unit) 0)
-          (setf (anim unit)
-                (funcall (animator unit) tag
-                         :on-last-frame (lambda () (incf (anim-count unit))))))))))
+        (reset-animation unit)))))
+
+(defmethod (setf facing) :around (new-facing (unit unit))
+  (let ((old-facing (facing unit)))
+    (prog1 (call-next-method)
+      (unless (eq old-facing new-facing)
+        (reset-animation unit)))))
 
 (defun move-to-unoccupied-adjacent-cell (unit)
   (let ((cell (map-position-to-cell (position-on-map unit))))
@@ -286,7 +294,7 @@
                    do (setf (path-to-walk unit) (list adjacent-cell))
                       (return-from move-to-unoccupied-adjacent-cell))))
   ;; The unit is stuck in a bad place.  Time to die.
-  (setf (state unit) :die))
+  (setf (action unit) (list :die)))
 
 (defun unit-do-move (unit)
   (let* ((goal-position-cell (cadr (action unit)))
@@ -317,6 +325,7 @@
     (cond ((null next-cell)
            (cond ((unit-can-occupy-p unit (position-on-map unit))
                   (unit-occupy unit)
+                  (setf (facing unit) :down)
                   (setf (state unit) :idle))
                  (t
                   (move-to-unoccupied-adjacent-cell unit))))
@@ -324,10 +333,18 @@
            (pop (path-to-walk unit)))
           ((unit-can-occupy-p unit next-position)
            (setf (state unit) :walk)
-           (incf (position-on-map-float unit)
-                 (* dt
-                    (walk-speed unit)
-                    (signum-point (- next-position (position-on-map unit))))))
+           (let ((direction (signum-point (- next-position (position-on-map unit)))))
+             (setf (facing unit)
+                   (case direction
+                     (#C(0 1) :down)
+                     (#C(1 0) :right)
+                     (#C(-1 0) :left)
+                     (#C(0 -1) :up)
+                     (t (facing unit))))
+             (incf (position-on-map-float unit)
+                   (* dt
+                      (walk-speed unit)
+                      direction))))
           (t
            ;; Mark next position's cell as blocked and search for a
            ;; new path.
@@ -355,6 +372,7 @@
      (unit-do-move unit)
      (setf (action unit) nil))
     (:die
+     (setf (facing unit) :down)
      (setf (state unit) :die)))
   (case (state unit)
     (:walk
@@ -413,8 +431,7 @@
     (let ((unit (make-instance 'unit
                                :game game
                                :position-on-map (point (* (+ i 3) unit-dim)
-                                                       (* (if (evenp i) 3 4) unit-dim))
-                               :heading :down)))
+                                                       (* (if (evenp i) 3 4) unit-dim)))))
       (push unit (units game)))))
 
 (defun selectablep (unit)
