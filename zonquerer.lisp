@@ -129,15 +129,15 @@
 
 ;;;; Occupancy Table
 
-(defconstant occupancy-dim 16)
+(defconstant unit-dim 16)
 
-(defconstant occupancy-dim-1 (1- occupancy-dim))
+(defconstant unit-dim-1 (1- unit-dim))
 
 (defun map-position-to-cell (position)
-  (truncate-point position occupancy-dim))
+  (truncate-point position unit-dim))
 
 (defun cell-to-map-position (cell)
-  (* cell occupancy-dim))
+  (* cell unit-dim))
 
 (defun screen-position-to-cell (game position)
   (map-position-to-cell (- position (map-start-position game))))
@@ -187,8 +187,8 @@
                   (sdl2-ffi.functions:box-rgba renderer
                                                px
                                                py
-                                               (+ px occupancy-dim-1)
-                                               (+ py occupancy-dim-1)
+                                               (+ px unit-dim-1)
+                                               (+ py unit-dim-1)
                                                #xFF #x00 #x00 #x1F))))))))))
 
 (defun make-occupancy-table (map-dimensions)
@@ -208,10 +208,6 @@
         (make-occupancy-table (map-dimensions game))))
 
 ;;;; Units
-
-(defconstant unit-dim 16)
-
-(defconstant unit-dim-1 (1- unit-dim))
 
 (defconstant unit-center
   (point (truncate unit-dim 2)
@@ -251,10 +247,7 @@
     (unit-occupy unit)))
 
 (defun unit-occupancy-cells (map-position)
-  (list (map-position-to-cell map-position)
-        (map-position-to-cell (+ map-position (point 0 unit-dim-1)))
-        (map-position-to-cell (+ map-position (point unit-dim-1 0)))
-        (map-position-to-cell (+ map-position (point unit-dim-1 unit-dim-1)))))
+  (list (map-position-to-cell map-position)))
 
 (defun unit-can-occupy-p (unit map-position)
   (let ((game (game unit)))
@@ -291,14 +284,13 @@
                    for adjacent-cell = (+ cell (* scale direction))
                    for adjacent-cell-position = (cell-to-map-position adjacent-cell)
                    when (unit-can-occupy-p unit adjacent-cell-position)
-                   do (setf (path-to-walk unit) (list adjacent-cell-position))
+                   do (setf (path-to-walk unit) (list adjacent-cell))
                       (return-from move-to-unoccupied-adjacent-cell))))
   ;; The unit is stuck in a bad place.  Time to die.
   (setf (state unit) :die))
 
 (defun unit-do-move (unit)
-  (let* ((goal-position (- (cadr (action unit)) unit-center))
-         (goal-position-cell (map-position-to-cell goal-position))
+  (let* ((goal-position-cell (cadr (action unit)))
          (game (game unit)))
     (setf (path-to-walk-blocked-cells unit) (make-hash-table))
     ;; It's not guaranteed that we currently occupy our position, as
@@ -311,88 +303,85 @@
         (when (null near)
           (unit-occupy unit)
           (return-from unit-do-move))
-        (setf goal-position (+ (cell-to-map-position near) unit-center))))
+        (setf goal-position-cell near)))
     (setf (path-to-walk unit)
-          (compute-path-to-walk (position-on-map unit)
-                                goal-position
+          (compute-path-to-walk (map-position-to-cell (position-on-map unit))
+                                goal-position-cell
                                 (list (occupancy-table game)
                                       (path-to-walk-blocked-cells unit))))
     (setf (state unit) :walk)))
 
-(defun update-unit (unit dt)
-  (let ((game (game unit)))
-    (when (eq (car (action unit)) :move)
-      (unit-do-move unit)
-      (setf (action unit) nil))
-    (case (state unit)
-      (:walk
-       (let ((next-position (car (path-to-walk unit))))
-         (cond ((null next-position)
-                (cond ((unit-can-occupy-p unit (position-on-map unit))
-                       (unit-occupy unit)
-                       (setf (state unit) :idle))
-                      (t
-                       (move-to-unoccupied-adjacent-cell unit))))
-               ((= next-position (position-on-map unit))
-                (pop (path-to-walk unit)))
-               ((unit-can-occupy-p unit next-position)
-                (setf (state unit) :walk)
-                (incf (position-on-map-float unit)
-                      (* dt
-                         (walk-speed unit)
-                         (signum-point (- next-position (position-on-map unit))))))
-               (t
-                ;; Mark next position's cell as blocked and search for a
-                ;; new path.
-                (let* ((cell (map-position-to-cell next-position))
-                       (target-position (car (last (path-to-walk unit)))))
-                  (setf (gethash cell (path-to-walk-blocked-cells unit)) t)
-                  (setf (path-to-walk unit)
-                        (compute-path-to-walk (position-on-map unit)
-                                              target-position
-                                              (list (occupancy-table game)
-                                                    (path-to-walk-blocked-cells unit))))
-                  (when (null (path-to-walk unit))
-                    (cond ((unit-can-occupy-p unit (position-on-map unit))
-                           (unit-occupy unit)
-                           (setf (state unit) :idle))
-                          (t
-                           ;; There is no path to the target position,
-                           ;; and we can't occupy the current
-                           ;; position, so find an adjacent cell to
-                           ;; move to.
-                           (move-to-unoccupied-adjacent-cell unit)))))))))
-      (:become
-       (when (plusp (anim-count unit))
-         (setf (state unit) :idle)))
-      (:die
-       (format t "TODO: Unit ~S is supposed to die.~%" unit)
-       (setf (state unit) :idle)))))
+(defun unit-walk (unit dt)
+  (let* ((game (game unit))
+         (next-cell (car (path-to-walk unit)))
+         (next-position (and next-cell (cell-to-map-position next-cell))))
+    (cond ((null next-cell)
+           (cond ((unit-can-occupy-p unit (position-on-map unit))
+                  (unit-occupy unit)
+                  (setf (state unit) :idle))
+                 (t
+                  (move-to-unoccupied-adjacent-cell unit))))
+          ((= next-position (position-on-map unit))
+           (pop (path-to-walk unit)))
+          ((unit-can-occupy-p unit next-position)
+           (setf (state unit) :walk)
+           (incf (position-on-map-float unit)
+                 (* dt
+                    (walk-speed unit)
+                    (signum-point (- next-position (position-on-map unit))))))
+          (t
+           ;; Mark next position's cell as blocked and search for a
+           ;; new path.
+           (let ((target-cell (car (last (path-to-walk unit)))))
+             (setf (gethash next-cell (path-to-walk-blocked-cells unit)) t)
+             (setf (path-to-walk unit)
+                   (compute-path-to-walk (map-position-to-cell (position-on-map unit))
+                                         target-cell
+                                         (list (occupancy-table game)
+                                               (path-to-walk-blocked-cells unit))))
+             (when (null (path-to-walk unit))
+               (cond ((unit-can-occupy-p unit (position-on-map unit))
+                      (push (map-position-to-cell (position-on-map unit))
+                            (path-to-walk unit)))
+                     (t
+                      ;; There is no path to the target position,
+                      ;; and we can't occupy the current
+                      ;; position, so find an adjacent cell to
+                      ;; move to.
+                      (move-to-unoccupied-adjacent-cell unit)))))))))
 
-(defun compute-path-to-walk (start-position goal-position occupancy-tables)
-  (let ((start-cell (map-position-to-cell start-position))
-        (goal-cell (map-position-to-cell goal-position)))
-    (flet ((blockedp (cell)
-             (some (lambda (table) (gethash cell table)) occupancy-tables)))
-      (if (or (blockedp start-cell) (blockedp goal-cell))
-          '()
-          (reverse
-           (a-star start-position
-                   :goal-state-p (lambda (position)
-                                   (= position goal-position))
-                   :heuristic (lambda (position)
-                                (abs (- position goal-position)))
-                   :failure-p (lambda (position)
-                                (blockedp (map-position-to-cell position)))
-                   :max-cost (* 5 (abs (- goal-position start-position)))
-                   :expand (lambda (position)
-                             (loop with scale = (if (< (abs (- goal-position position)) occupancy-dim)
-                                                    1
-                                                    occupancy-dim)
-                                   for direction in *taxicab-directions*
-                                   for new-position = (+ position (* scale direction))
-                                   collect (list (abs (- new-position position))
-                                                 new-position)))))))))
+(defun update-unit (unit dt)
+  (when (eq (car (action unit)) :move)
+    (unit-do-move unit)
+    (setf (action unit) nil))
+  (case (state unit)
+    (:walk
+     (unit-walk unit dt))
+    (:become
+     (when (plusp (anim-count unit))
+       (setf (state unit) :idle)))
+    (:die
+     (format t "TODO: Unit ~S is supposed to die.~%" unit)
+     (setf (state unit) :idle))))
+
+(defun compute-path-to-walk (start-cell goal-cell occupancy-tables)
+  (flet ((blockedp (cell)
+           (some (lambda (table) (gethash cell table)) occupancy-tables)))
+    (if (or (blockedp start-cell) (blockedp goal-cell))
+        '()
+        (reverse
+         (a-star start-cell
+                 :goal-state-p (lambda (cell)
+                                 (= cell goal-cell))
+                 :heuristic (lambda (cell)
+                              (abs (- goal-cell cell)))
+                 :failure-p #'blockedp
+                 :max-cost (* 5 (abs (- goal-cell start-cell)))
+                 :expand (lambda (cell)
+                           (loop for direction in *taxicab-directions*
+                                 for new-cell = (+ cell direction)
+                                 collect (list (abs (- new-cell cell))
+                                               new-cell))))))))
 
 (defun draw-unit (unit dt)
   (let ((pos (position-on-screen unit))
@@ -406,19 +395,19 @@
                                          (+ 1 unit-dim (y pos))
                                          #xFF #xFF #xFF #x7F))
     (when (debuggingp game)
-      (dolist (pos (path-to-walk unit))
-        (let ((spos (- pos (map-start-position game))))
+      (dolist (cell (path-to-walk unit))
+        (let ((spos (cell-to-screen-position game cell)))
           (sdl2-ffi.functions:pixel-rgba (renderer game)
                                          (x spos)
                                          (y spos)
                                          #x00 #x00 #x00 #x7F))))))
 
 (defun setup-units (game)
-  (dotimes (i 4)
+  (dotimes (i 8)
     (let ((unit (make-instance 'unit
                                :game game
-                               :position-on-map (point (+ (* i 50) 50)
-                                                       (if (evenp i) 40 20))
+                               :position-on-map (point (* (+ i 3) unit-dim)
+                                                       (* (if (evenp i) 3 4) unit-dim))
                                :heading :down)))
       (push unit (units game)))))
 
@@ -549,7 +538,8 @@
       (let ((move-event
               (make-instance 'move-event
                              :units units
-                             :destination (+ (map-start-position game) position))))
+                             :destination (map-position-to-cell
+                                           (+ (map-start-position game) position)))))
         (push-event game move-event)))))
 
 (defun play ()
