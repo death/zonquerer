@@ -350,9 +350,12 @@
                       (move-to-unoccupied-adjacent-cell unit)))))))))
 
 (defun update-unit (unit dt)
-  (when (eq (car (action unit)) :move)
-    (unit-do-move unit)
-    (setf (action unit) nil))
+  (case (car (action unit))
+    (:move
+     (unit-do-move unit)
+     (setf (action unit) nil))
+    (:die
+     (setf (state unit) :die)))
   (case (state unit)
     (:walk
      (unit-walk unit dt))
@@ -360,8 +363,12 @@
      (when (plusp (anim-count unit))
        (setf (state unit) :idle)))
     (:die
-     (format t "TODO: Unit ~S is supposed to die.~%" unit)
-     (setf (state unit) :idle))))
+     (setf (selectedp unit) nil)
+     (when (plusp (anim-count unit))
+       (funcall (anim unit) :pause)
+       (when (unit-can-occupy-p unit (position-on-map unit))
+         (unit-occupy unit nil))
+       (sort-units (game unit))))))
 
 (defun compute-path-to-walk (start-cell goal-cell occupancy-tables)
   (flet ((blockedp (cell)
@@ -385,7 +392,7 @@
 (defun draw-unit (unit dt)
   (let ((pos (position-on-screen unit))
         (game (game unit)))
-    (funcall (anim unit) pos dt)
+    (funcall (anim unit) :draw pos dt)
     (when (selectedp unit)
       (sdl2-ffi.functions:rectangle-rgba (renderer game)
                                          (1- (x pos))
@@ -410,8 +417,21 @@
                                :heading :down)))
       (push unit (units game)))))
 
+(defun selectablep (unit)
+  (not (eq (state unit) :die)))
+
 (defun selected-units (game)
   (remove-if-not #'selectedp (units game)))
+
+(defun sort-units (game)
+  (setf (units game) (sort (units game) #'unit<)))
+
+(defun unit< (unit1 unit2)
+  (let ((state1 (state unit1))
+        (state2 (state unit2)))
+    (cond ((eq state1 :die) (not (eq state2 :die)))
+          ((eq state2 :die) nil)
+          (t nil))))
 
 ;;;; Selection
 
@@ -446,12 +466,13 @@
   (multiple-value-bind (left top right bottom)
       (selection-bounds (start-position selection-event)
                         (end-position selection-event))
-    (flet ((insidep (point)
-             (and (<= left (+ (x point) unit-dim-1) (+ right unit-dim-1))
-                  (<= top (+ (y point) unit-dim-1) (+ bottom unit-dim-1)))))
-      (remove-if-not #'insidep
-                     (units game)
-                     :key #'position-on-map))))
+    (labels ((inside-bounds-p (point)
+               (and (<= left (+ (x point) unit-dim-1) (+ right unit-dim-1))
+                    (<= top (+ (y point) unit-dim-1) (+ bottom unit-dim-1))))
+             (in-selection-p (unit)
+               (and (inside-bounds-p (position-on-map unit))
+                    (selectablep unit))))
+      (remove-if-not #'in-selection-p (units game)))))
 
 (defmethod process-event ((game zonquerer) (event selection-event) dt)
   (declare (ignore dt))
@@ -484,6 +505,15 @@
       (setf (action unit)
             (list :move destination)))))
 
+(defclass die-event (standard-event)
+  ((units :initarg :units :reader units)))
+
+(defmethod process-event ((game zonquerer) (event die-event) dt)
+  (declare (ignore dt))
+  (dolist (unit (units event))
+    (setf (action unit)
+          (list :die))))
+
 ;;;; The game
 
 (defmethod update ((game zonquerer) dt)
@@ -492,7 +522,9 @@
           (not (member :scancode-lshift (keys game)))))
   (update-map game dt)
   (dolist (unit (units game))
-    (update-unit unit dt)))
+    (update-unit unit dt))
+  (when (member :scancode-k (keys game))
+    (push-event game (make-instance 'die-event :units (selected-units game)))))
 
 (defmethod draw ((game zonquerer) dt)
   (draw-map game dt)
@@ -531,14 +563,11 @@
            (setf (selection-event-buildup game) nil)))))
 
 (defmethod mouse-event ((game zonquerer) (state (eql :down)) (button (eql 3)) position)
-  (let ((units (selected-units game)))
-    (when units
-      (let ((move-event
+  (push-event game
               (make-instance 'move-event
-                             :units units
+                             :units (selected-units game)
                              :destination (map-position-to-cell
                                            (+ (map-start-position game) position)))))
-        (push-event game move-event)))))
 
 (defun play ()
   (driver (make-instance 'zonquerer)))

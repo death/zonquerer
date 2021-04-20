@@ -387,26 +387,33 @@
            (frame (mod start-frame num-frames))
            (source-rect (aref rects frame))
            (wait-ms (aref durations frame))
-           (dest-rect (sdl2:copy-rect source-rect)))
-      (lambda (dest-pos dt)
-        (let* ((dt-ms (* dt 1000.0))
-               (now-ms (+ time-ms dt-ms)))
-          (loop while (< (+ time-ms wait-ms) now-ms)
-                do (incf time-ms wait-ms)
-                   (let ((new-frame (mod (1+ frame) num-frames)))
-                     (when (= new-frame (1- num-frames))
-                       (funcall last-frame-callback))
-                     (setf frame new-frame)
-                     (setf source-rect (aref rects frame))
-                     (setf wait-ms (aref durations frame))))
-          (decf wait-ms (- now-ms time-ms))
-          (setf time-ms now-ms)
-          (setf (sdl2:rect-x dest-rect) (x dest-pos))
-          (setf (sdl2:rect-y dest-rect) (y dest-pos))
-          (sdl2:render-copy renderer
-                            sdl-texture
-                            :source-rect source-rect
-                            :dest-rect dest-rect))))))
+           (dest-rect (sdl2:copy-rect source-rect))
+           (paused nil))
+      (lambda (op &optional dest-pos dt)
+        (ecase op
+          (:pause
+           (setf paused t))
+          (:continue
+           (setf paused nil))
+          (:draw
+           (let* ((dt-ms (* dt 1000.0))
+                  (now-ms (+ time-ms dt-ms)))
+             (loop while (< (+ time-ms wait-ms) now-ms)
+                   do (incf time-ms wait-ms)
+                      (let ((new-frame (if paused frame (mod (1+ frame) num-frames))))
+                        (when (and (not paused) (= new-frame (1- num-frames)))
+                          (funcall last-frame-callback))
+                        (setf frame new-frame)
+                        (setf source-rect (aref rects frame))
+                        (setf wait-ms (aref durations frame))))
+             (decf wait-ms (- now-ms time-ms))
+             (setf time-ms now-ms)
+             (setf (sdl2:rect-x dest-rect) (x dest-pos))
+             (setf (sdl2:rect-y dest-rect) (y dest-pos))
+             (sdl2:render-copy renderer
+                               sdl-texture
+                               :source-rect source-rect
+                               :dest-rect dest-rect))))))))
 
 ;;;; Font
 
