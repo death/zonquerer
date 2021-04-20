@@ -212,12 +212,9 @@
 ;;;; Tile Map
 
 (defclass tile-map (standard-resource)
-  ((num-rows :initarg :num-rows :reader num-rows)
-   (num-cols :initarg :num-cols :reader num-cols)
-   (tile-sets :initform '() :accessor tile-sets)
-   (layers :initform '() :accessor layers)
-   (dimensions :initform #C(0 0) :accessor dimensions)
-   (render-function :initform nil :accessor external)))
+  ((dimensions :initform #C(0 0) :accessor dimensions)
+   (render-function :initform nil :accessor external)
+   (sdl-texture :initform nil :accessor sdl-texture)))
 
 (defmethod create-resource ((game game) (kind (eql 'tile-map)) name &key)
   (let* ((filename (make-asset-filename game name "json"))
@@ -228,11 +225,7 @@
          (tile-sets-json (gethash "tilesets" json))
          (tile-sets '())
          (layers '())
-         (tile-map (make-instance 'tile-map
-                                  :name name
-                                  :game game
-                                  :num-cols width
-                                  :num-rows height)))
+         (tile-map (make-instance 'tile-map :name name :game game)))
     (assert (= (length tile-sets-json) (length layers-json)))
     (dotimes (i (length tile-sets-json))
       (let* ((tile-set-json (aref tile-sets-json i))
@@ -244,30 +237,54 @@
         (assert (= (length data) (* width height)))
         (push tile-set tile-sets)
         (push (map 'list (lambda (x) (- x first-gid)) data) layers)
-        (depend-on tile-map tile-set)))
+        ;; We don't need to depend on the tile sets because we render
+        ;; them ahead of time to our own texture.
+        ))
     (setf tile-sets (nreverse tile-sets))
     (setf layers (nreverse layers))
-    (setf (tile-sets tile-map) tile-sets)
-    (setf (layers tile-map) layers)
-    (setf (dimensions tile-map)
-          (point (* width (tile-width (first tile-sets)))
-                 (* height (tile-height (first tile-sets)))))
-    (let ((tile-renderers (mapcar #'external tile-sets))
-          (tile-widths (mapcar #'tile-width tile-sets))
-          (tile-heights (mapcar #'tile-height tile-sets)))
-      (setf (external tile-map)
-            (lambda (start-pos)
-              (loop for layer in layers
-                    for tw in tile-widths
-                    for th in tile-heights
-                    for render-tile in tile-renderers
-                    do (dotimes (row height)
-                         (let ((pos (point 0 (* row th))))
-                           (dotimes (col width)
-                             (let ((n (pop layer)))
-                               (funcall render-tile n (- pos start-pos))
-                               (incf pos (point tw 0))))))))))
+    (let* ((renderer (renderer game))
+           (tile-renderers (mapcar #'external tile-sets))
+           (tile-widths (mapcar #'tile-width tile-sets))
+           (tile-heights (mapcar #'tile-height tile-sets))
+           (width-in-pixels (* width (tile-width (first tile-sets))))
+           (height-in-pixels (* height (tile-height (first tile-sets))))
+           (sdl-texture (sdl2:create-texture renderer
+                                             sdl2:+pixelformat-rgba32+
+                                             :target
+                                             width-in-pixels
+                                             height-in-pixels)))
+      (setf (dimensions tile-map) (point width-in-pixels height-in-pixels))
+      (setf (sdl-texture tile-map) sdl-texture)
+      (sdl2:set-render-target renderer sdl-texture)
+      (loop for layer in layers
+            for tw in tile-widths
+            for th in tile-heights
+            for render-tile in tile-renderers
+            do (dotimes (row height)
+                 (let ((pos (point 0 (* row th))))
+                   (dotimes (col width)
+                     (let ((n (pop layer)))
+                       (funcall render-tile n pos)
+                       (incf pos (point tw 0)))))))
+      (sdl2:set-render-target renderer nil)
+      (destructure-point (w h) (video-dimensions game)
+        (let ((source-rect (sdl2:make-rect 0 0 w h))
+              (dest-rect (sdl2:make-rect 0 0 w h)))
+          (setf (external tile-map)
+                (lambda (start-pos)
+                  (setf (sdl2:rect-x source-rect) (x start-pos))
+                  (setf (sdl2:rect-y source-rect) (y start-pos))
+                  (setf (sdl2:rect-width dest-rect)
+                        (min w (- width-in-pixels (x start-pos))))
+                  (setf (sdl2:rect-height dest-rect)
+                        (min h (- width-in-pixels (y start-pos))))
+                  (sdl2:render-copy renderer sdl-texture
+                                    :source-rect source-rect
+                                    :dest-rect dest-rect))))))
     tile-map))
+
+(defmethod free ((tile-map tile-map))
+  (sdl2:destroy-texture (sdl-texture tile-map)))
 
 ;;;; Sprite Sheet
 
