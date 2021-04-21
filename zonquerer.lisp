@@ -278,7 +278,8 @@
   ((sheet-name :initform :blueunit)))
 
 (defclass enemy-unit (unit)
-  ((sheet-name :initform :redunit)))
+  ((sheet-name :initform :redunit)
+   (ai-state :initform :wander :accessor ai-state)))
 
 (defun position-on-map (unit)
   (truncate-point (position-on-map-float unit)))
@@ -335,17 +336,13 @@
       (unless (eq old-facing new-facing)
         (reset-animation unit)))))
 
-(defun move-to-unoccupied-adjacent-cell (unit)
+(defun unoccupied-adjacent-cells (unit)
   (let ((cell (map-position-to-cell (position-on-map unit))))
-    (loop for scale from 1 to 2
-          do (loop for direction in *taxicab-directions*
-                   for adjacent-cell = (+ cell (* scale direction))
-                   for adjacent-cell-position = (cell-to-map-position adjacent-cell)
-                   when (unit-can-occupy-p unit adjacent-cell-position)
-                   do (setf (path-to-walk unit) (list adjacent-cell))
-                      (return-from move-to-unoccupied-adjacent-cell))))
-  ;; The unit is stuck in a bad place.  Time to die.
-  (setf (action unit) (list :die)))
+    (loop for direction in *taxicab-directions*
+          for adjacent-cell = (+ cell direction)
+          for adjacent-cell-position = (cell-to-map-position adjacent-cell)
+          when (unit-can-occupy-p unit adjacent-cell-position)
+          collect adjacent-cell)))
 
 (defun adjacent-units (unit &optional (predicate (constantly t)))
   (let ((cell (map-position-to-cell (position-on-map unit)))
@@ -376,6 +373,15 @@
                                 (list (occupancy-table game)
                                       (path-to-walk-blocked-cells unit))))
     (setf (state unit) :walk)))
+
+(defun move-to-unoccupied-adjacent-cell (unit)
+  ;; This function is part of the unit walking mechanism; it is called
+  ;; when the unit cannot stay in its current position.
+  (let ((candidates (unoccupied-adjacent-cells unit)))
+    (if (null candidates)
+        ;; The unit is stuck in a bad place.  Time to die.
+        (setf (action unit) (list :die))
+        (setf (path-to-walk unit) (list (first candidates))))))
 
 (defun unit-walk (unit dt)
   (let* ((game (game unit))
@@ -432,17 +438,31 @@
            (let ((them (class-of occupant)))
              (not (eq us them)))))))
 
-(defmethod unit-idle ((unit unit) dt)
+(defgeneric unit-idle (unit dt)
+  (:method-combination or :most-specific-last))
+
+(defmethod unit-idle or ((unit unit) dt)
   (declare (ignore dt))
-  (let ((game (game unit)))
-    (when (and (zerop (cooldown unit))
-               (null (action unit)))
-      (let ((victims (adjacent-units unit (enemy-of unit))))
-        (when victims
-          (push-event game
-                      (make-instance 'attack-event
-                                     :victims victims
-                                     :attacker unit)))))))
+  (when (and (zerop (cooldown unit))
+             (null (action unit)))
+    (let ((victims (adjacent-units unit (enemy-of unit))))
+      (when victims
+        (push-event (game unit)
+                    (make-instance 'attack-event
+                                   :victims victims
+                                   :attacker unit))
+        t))))
+
+(defmethod unit-idle or ((unit enemy-unit) dt)
+  (declare (ignore dt))
+  (when (null (action unit))
+    (case (ai-state unit)
+      (:wander
+       (let ((cells (unoccupied-adjacent-cells unit)))
+         (when cells
+           (setf (action unit)
+                 (list :move (alexandria:random-elt cells)))
+           t))))))
 
 (defun update-unit (unit dt)
   (setf (cooldown unit) (max 0.0 (- (cooldown unit) dt)))
@@ -473,7 +493,6 @@
        (setf (state unit) :idle)))
     (:die
      (setf (selectedp unit) nil)
-     (setf (attack-anims unit) nil)
      (when (plusp (anim-count unit))
        (setf (state unit) :dead)
        (when (unit-can-occupy-p unit (position-on-map unit))
@@ -554,7 +573,8 @@
       (push unit (units game)))))
 
 (defun selectablep (unit)
-  (not (member (state unit) '(:die :dead))))
+  (and (typep unit 'player-unit)
+       (not (member (state unit) '(:die :dead)))))
 
 (defun selected-units (game)
   (remove-if-not #'selectedp (units game)))
