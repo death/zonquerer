@@ -44,7 +44,8 @@
    (selection-event-buildup :initform nil :accessor selection-event-buildup)
    (string-renderer :initform nil :accessor string-renderer)
    (occupancy-table :initform nil :accessor occupancy-table)
-   (debugging :initform nil :accessor debuggingp)))
+   (debugging :initform nil :accessor debuggingp)
+   (stored-selections :initform (make-hash-table) :reader stored-selections)))
 
 ;;;; Cursors
 
@@ -650,12 +651,36 @@
     (setf (selectedp unit)
           (not (selectedp unit)))))
 
+(defvar *digit-scancodes*
+  (list :scancode-1 :scancode-2 :scancode-3))
+
+(defun update-stored-selections (game dt)
+  (declare (ignore dt))
+  (let ((keys (keys game))
+        (stored-selections (stored-selections game)))
+    (dolist (scancode *digit-scancodes*)
+      (when (member scancode keys)
+        (let ((store (member :scancode-lctrl keys))
+              (selected (selected-units game)))
+          (symbol-macrolet ((stored-selected (gethash scancode stored-selections)))
+            (cond ((and store selected)
+                   (setf stored-selected selected)
+                   (return-from update-stored-selections))
+                  ((and (not store) stored-selected)
+                   (dolist (unit selected)
+                     (setf (selectedp unit) nil))
+                   (dolist (unit stored-selected)
+                     (when (selectablep unit)
+                       (setf (selectedp unit) t)))
+                   (return-from update-stored-selections)))))))))
+
 ;;;; The game
 
 (defmethod update ((game zonquerer) dt)
   (when (member :scancode-d (keys game))
     (setf (debuggingp game)
           (not (member :scancode-lshift (keys game)))))
+  (update-stored-selections game dt)
   (update-map game dt)
   (dolist (unit (units game))
     (update-unit unit dt))
