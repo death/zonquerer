@@ -206,6 +206,39 @@
 (defun copy-occupancy-table (occupancy-table)
   (alexandria:copy-hash-table occupancy-table))
 
+;;;; Game events
+
+(defclass move-event (standard-event)
+  ((units :initarg :units :reader units)
+   (destination :initarg :destination :reader destination)))
+
+(defmethod process-event ((game zonquerer) (event move-event) dt)
+  (declare (ignore dt))
+  (let ((destination (destination event)))
+    (dolist (unit (units event))
+      (setf (action unit)
+            (list :move destination)))))
+
+(defclass die-event (standard-event)
+  ((units :initarg :units :reader units)))
+
+(defmethod process-event ((game zonquerer) (event die-event) dt)
+  (declare (ignore dt))
+  (dolist (unit (units event))
+    (setf (action unit)
+          (list :die))))
+
+(defclass attack-event (standard-event)
+  ((victims :initarg :victims :reader victims)
+   (attacker :initarg :attacker :reader attacker)))
+
+(defmethod process-event ((game zonquerer) (event attack-event) dt)
+  (declare (ignore dt))
+  (let ((attacker (attacker event))
+        (victims (victims event)))
+    (when (null (action attacker))
+      (setf (action attacker) (list :attack victims)))))
+
 ;;;; Units
 
 (defconstant unit-center
@@ -215,6 +248,12 @@
 (defconstant walk-speed-min 20)
 
 (defconstant walk-speed-max 50)
+
+(defvar *cooldown-initial* 2.0)
+
+(defvar *hitpoints-initial* 50)
+
+(defvar *damage-range* (list 4 8))
 
 (defclass unit ()
   ((game :initarg :game :reader game)
@@ -228,7 +267,18 @@
    (action :initform nil :accessor action)
    (path-to-walk :initform '() :accessor path-to-walk)
    (path-to-walk-blocked-cells :initform nil :accessor path-to-walk-blocked-cells)
-   (walk-speed :initform walk-speed-min :accessor walk-speed)))
+   (walk-speed :initform walk-speed-min :accessor walk-speed)
+   (sheet-name :reader sheet-name)
+   (cooldown :initform 0.0 :accessor cooldown)
+   (attack-victims :initform '() :accessor attack-victims)
+   (attack-anims :initform '() :accessor attack-anims)
+   (hitpoints :initform *hitpoints-initial* :accessor hitpoints)))
+
+(defclass player-unit (unit)
+  ((sheet-name :initform :blueunit)))
+
+(defclass enemy-unit (unit)
+  ((sheet-name :initform :redunit)))
 
 (defun position-on-map (unit)
   (truncate-point (position-on-map-float unit)))
@@ -239,7 +289,8 @@
 
 (defmethod initialize-instance :after ((unit unit) &key)
   (let* ((game (game unit))
-         (sprite-sheet (intern-resource game 'sprite-sheet :unit))
+         (name (sheet-name unit))
+         (sprite-sheet (intern-resource game 'sprite-sheet name))
          (animator (external sprite-sheet)))
     (setf (animator unit) animator)
     (reset-animation unit)
@@ -296,9 +347,17 @@
   ;; The unit is stuck in a bad place.  Time to die.
   (setf (action unit) (list :die)))
 
-(defun unit-do-move (unit)
-  (let* ((goal-position-cell (cadr (action unit)))
-         (game (game unit)))
+(defun adjacent-units (unit &optional (predicate (constantly t)))
+  (let ((cell (map-position-to-cell (position-on-map unit)))
+        (game (game unit)))
+    (loop for direction in *taxicab-directions*
+          for adjacent-cell = (+ cell direction)
+          for occupant = (occupiedp game adjacent-cell)
+          when (and occupant (funcall predicate occupant))
+          collect occupant)))
+
+(defun unit-do-move (unit goal-position-cell)
+  (let ((game (game unit)))
     (setf (path-to-walk-blocked-cells unit) (make-hash-table))
     ;; It's not guaranteed that we currently occupy our position, as
     ;; we can move to a different goal position while already walking,
@@ -366,14 +425,46 @@
                       ;; move to.
                       (move-to-unoccupied-adjacent-cell unit)))))))))
 
+(defun enemy-of (unit)
+  (let ((us (class-of unit)))
+    (lambda (occupant)
+      (and (typep occupant 'unit)
+           (let ((them (class-of occupant)))
+             (not (eq us them)))))))
+
+(defmethod unit-idle ((unit unit) dt)
+  (declare (ignore dt))
+  (let ((game (game unit)))
+    (when (and (zerop (cooldown unit))
+               (null (action unit)))
+      (let ((victims (adjacent-units unit (enemy-of unit))))
+        (when victims
+          (push-event game
+                      (make-instance 'attack-event
+                                     :victims victims
+                                     :attacker unit)))))))
+
 (defun update-unit (unit dt)
+  (setf (cooldown unit) (max 0.0 (- (cooldown unit) dt)))
+  (when (and (not (plusp (hitpoints unit)))
+             (not (eq (state unit) :dead)))
+    (setf (facing unit) :down)
+    (setf (state unit) :die)
+    (setf (action unit) nil))
   (case (car (action unit))
     (:move
-     (unit-do-move unit)
+     (unit-do-move unit (cadr (action unit)))
      (setf (action unit) nil))
     (:die
      (setf (facing unit) :down)
-     (setf (state unit) :die)))
+     (setf (state unit) :die)
+     (setf (action unit) nil))
+    (:attack
+     (setf (cooldown unit) *cooldown-initial*)
+     (setf (attack-victims unit) (cadr (action unit)))
+     (setf (facing unit) :down)
+     (setf (state unit) :attack)
+     (setf (action unit) nil)))
   (case (state unit)
     (:walk
      (unit-walk unit dt))
@@ -382,11 +473,32 @@
        (setf (state unit) :idle)))
     (:die
      (setf (selectedp unit) nil)
+     (setf (attack-anims unit) nil)
      (when (plusp (anim-count unit))
-       (funcall (anim unit) :pause)
+       (setf (state unit) :dead)
        (when (unit-can-occupy-p unit (position-on-map unit))
          (unit-occupy unit nil))
-       (sort-units (game unit))))))
+       (sort-units (game unit))))
+    (:dead)
+    (:idle
+     (unit-idle unit dt))
+    (:attack
+     (when (plusp (anim-count unit))
+       (setf (state unit) :idle)
+       (let* ((game (game unit))
+              (animator (external (intern-resource game 'sprite-sheet :burn))))
+         (dolist (victim (attack-victims unit))
+           (let ((victim victim)
+                 (anim nil))
+             (setq anim
+                   (funcall animator (list :burn)
+                            :on-last-frame
+                            (lambda ()
+                              (setf (attack-anims victim)
+                                    (remove anim (attack-anims victim) :count 1))
+                              (decf (hitpoints victim) (random-in-range *damage-range*)))))
+             (push anim (attack-anims victim))))
+         (setf (attack-victims unit) '()))))))
 
 (defun compute-path-to-walk (start-cell goal-cell occupancy-tables)
   (flet ((blockedp (cell)
@@ -411,6 +523,8 @@
   (let ((pos (position-on-screen unit))
         (game (game unit)))
     (funcall (anim unit) :draw pos dt)
+    (dolist (anim (attack-anims unit))
+      (funcall anim :draw pos dt))
     (when (selectedp unit)
       (sdl2-ffi.functions:rectangle-rgba (renderer game)
                                          (1- (x pos))
@@ -428,14 +542,19 @@
 
 (defun setup-units (game)
   (dotimes (i 8)
-    (let ((unit (make-instance 'unit
+    (let ((unit (make-instance 'player-unit
                                :game game
                                :position-on-map (point (* (+ i 3) unit-dim)
                                                        (* (if (evenp i) 3 4) unit-dim)))))
+      (push unit (units game)))
+    (let ((unit (make-instance 'enemy-unit
+                               :game game
+                               :position-on-map (point (* (+ i 3) unit-dim)
+                                                       (* (if (evenp i) 6 7) unit-dim)))))
       (push unit (units game)))))
 
 (defun selectablep (unit)
-  (not (eq (state unit) :die)))
+  (not (member (state unit) '(:die :dead))))
 
 (defun selected-units (game)
   (remove-if-not #'selectedp (units game)))
@@ -446,8 +565,8 @@
 (defun unit< (unit1 unit2)
   (let ((state1 (state unit1))
         (state2 (state unit2)))
-    (cond ((eq state1 :die) (not (eq state2 :die)))
-          ((eq state2 :die) nil)
+    (cond ((eq state1 :dead) (not (eq state2 :dead)))
+          ((eq state2 :dead) nil)
           (t nil))))
 
 ;;;; Selection
@@ -508,28 +627,6 @@
   (dolist (unit (units-in-selection game event))
     (setf (selectedp unit)
           (not (selectedp unit)))))
-
-;;;; Unit Movement
-
-(defclass move-event (standard-event)
-  ((units :initarg :units :reader units)
-   (destination :initarg :destination :reader destination)))
-
-(defmethod process-event ((game zonquerer) (event move-event) dt)
-  (declare (ignore dt))
-  (let ((destination (destination event)))
-    (dolist (unit (units event))
-      (setf (action unit)
-            (list :move destination)))))
-
-(defclass die-event (standard-event)
-  ((units :initarg :units :reader units)))
-
-(defmethod process-event ((game zonquerer) (event die-event) dt)
-  (declare (ignore dt))
-  (dolist (unit (units event))
-    (setf (action unit)
-          (list :die))))
 
 ;;;; The game
 

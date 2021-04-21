@@ -46,7 +46,8 @@
    #:remove-suffix
    #:as-keyword
    #:make-keyword-list
-   #:noop))
+   #:noop
+   #:random-in-range))
 
 (in-package #:zonquerer/utils)
 
@@ -125,3 +126,7 @@
 (defun noop (&rest whatever)
   (declare (ignore whatever))
   (values))
+
+(defun random-in-range (range)
+  (destructuring-bind (lower-bound upper-bound) range
+    (+ lower-bound (random (1+ (- upper-bound lower-bound))))))
