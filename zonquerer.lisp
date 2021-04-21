@@ -247,6 +247,8 @@
 
 (defconstant walk-speed-min 20)
 
+(defvar *walk-speed-initial* 30)
+
 (defconstant walk-speed-max 50)
 
 (defvar *cooldown-initial* 2.0)
@@ -267,7 +269,7 @@
    (action :initform nil :accessor action)
    (path-to-walk :initform '() :accessor path-to-walk)
    (path-to-walk-blocked-cells :initform nil :accessor path-to-walk-blocked-cells)
-   (walk-speed :initform walk-speed-min :accessor walk-speed)
+   (walk-speed :initform *walk-speed-initial* :accessor walk-speed)
    (sheet-name :reader sheet-name)
    (cooldown :initform 0.0 :accessor cooldown)
    (attack-victims :initform '() :accessor attack-victims)
