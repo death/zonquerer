@@ -47,7 +47,10 @@
    (debugging :initform nil :accessor debuggingp)
    (stored-selections :initform (make-hash-table) :reader stored-selections)
    (time-elapsed :initform 0.0 :accessor time-elapsed)
-   (timers :initform '() :accessor timers)))
+   (timers :initform '() :accessor timers)
+   (end-game-anim :initform nil :accessor end-game-anim)
+   (end-game-strings :initform nil :accessor end-game-strings)
+   (play-again :initform nil :accessor play-again-p)))
 
 ;;;; Cursors
 
@@ -537,7 +540,8 @@
        (setf (state unit) :dead)
        (when (unit-can-occupy-p unit (position-on-map unit))
          (unit-occupy unit nil))
-       (sort-units (game unit))))
+       (sort-units (game unit))
+       (check-end-of-game (game unit))))
     (:dead)
     (:idle
      (unit-idle unit dt))
@@ -619,7 +623,7 @@
 
 (defun create-enemy-units (game)
   (let ((cells (alexandria:shuffle (list-unoccupied-cells game))))
-    (dotimes (i 9)
+    (dotimes (i 6)
       (let* ((cell (pop cells))
              (pos (cell-to-map-position cell))
              (unit (make-instance 'enemy-unit
@@ -644,7 +648,9 @@
   (add-timer game
              :absolute 60
              :interval 60
-             :callback (lambda () (create-enemy-unit game))))
+             :callback (lambda ()
+                         (unless (end-game-anim game)
+                           (create-enemy-unit game)))))
 
 (defun selectablep (unit)
   (and (typep unit 'player-unit)
@@ -745,6 +751,57 @@
                        (setf (selectedp unit) t)))
                    (return-from update-stored-selections)))))))))
 
+;;;; End Game
+
+(defun end-of-game-p (game)
+  (let ((player-alive 0)
+        (enemy-alive 0))
+    (dolist (unit (units game))
+      (unless (eq (state unit) :dead)
+        (if (typep unit 'player-unit)
+            (incf player-alive)
+            (incf enemy-alive))))
+    (cond ((zerop enemy-alive) :win)
+          ((zerop player-alive) :lose)
+          (t nil))))
+
+(defun reveal (secret)
+  (map 'string
+       (lambda (char)
+         (if (alpha-char-p char)
+             (code-char (+ (char-code #\A) (mod (- (char-code char) 3) 26)))
+             char))
+       secret))
+
+(defun check-end-of-game (game)
+  (let ((end (end-of-game-p game)))
+    (when end
+      (dolist (unit (units game))
+        (setf (selectedp unit) nil))
+      (setf (end-game-anim game)
+            (funcall (external (intern-resource game 'sprite-sheet :blueunit))
+                     (list (if (eq end :win) :attack :die) :down)
+                     :on-last-frame (lambda ()
+                                      (funcall (end-game-anim game) :pause))))
+      (setf (end-game-strings game)
+            (mapcar #'reveal
+                    (list (if (eq end :win)
+                              "JXU FEMUH EV BYIF SECFYBUI OEK!"
+                              "OEK XQLU HUQSXUT JXU UDT EV JXU BYIJ!")
+                          "JXYI YI PEDGKUHUH RO TUQJX"
+                          "IFHYDW BYIF WQCU ZQC 2021"
+                          "JOFU UIS JE UNYJ, IFQSU JE FBQO QWQYD"))))))
+
+(defun draw-end-game (game dt)
+  (let* ((screen-center (truncate-point (video-dimensions game) 2))
+         (anim-pos (- screen-center (* 10 unit-center))))
+    (funcall (end-game-anim game) :draw anim-pos dt 8)
+    (loop for string in (end-game-strings game)
+          for xd = (* -2 (length string))
+          for yd = (* 3 unit-dim) then (+ yd 6)
+          for text-pos = (+ screen-center (point xd yd))
+          do (funcall (string-renderer game) string text-pos))))
+
 ;;;; The game
 
 (defmethod update ((game zonquerer) dt)
@@ -757,7 +814,11 @@
   (dolist (unit (units game))
     (update-unit unit dt))
   (when (member :scancode-k (keys game))
-    (push-event game (make-instance 'die-event :units (selected-units game)))))
+    (push-event game (make-instance 'die-event :units (selected-units game))))
+  (when (and (end-game-anim game)
+             (member :scancode-space (keys game)))
+    (setf (play-again-p game) t)
+    (sdl2:push-quit-event)))
 
 (defmethod draw ((game zonquerer) dt)
   (draw-map game dt)
@@ -766,7 +827,9 @@
   (dolist (unit (units game))
     (draw-unit unit dt))
   (when (selection-event-buildup game)
-    (draw-selection game dt)))
+    (draw-selection game dt))
+  (when (end-game-anim game)
+    (draw-end-game game dt)))
 
 (defmethod game-loop :before ((game zonquerer))
   (setup-cursors game)
@@ -775,6 +838,8 @@
   (setup-font game))
 
 (defmethod mouse-event ((game zonquerer) (state (eql :down)) (button (eql 1)) position)
+  (when (end-game-anim game)
+    (return-from mouse-event))
   (let ((keys (keys game)))
     (setf (selection-event-buildup game)
           (make-instance (cond ((member :scancode-lshift keys)
@@ -787,6 +852,8 @@
                          :end-position nil))))
 
 (defmethod mouse-event ((game zonquerer) (state (eql :up)) (button (eql 1)) position)
+  (when (end-game-anim game)
+    (return-from mouse-event))
   (let ((selection-event (selection-event-buildup game)))
     (cond (selection-event
            (setf (end-position selection-event)
@@ -802,4 +869,6 @@
                                            (+ (map-start-position game) position)))))
 
 (defun play ()
-  (driver (make-instance 'zonquerer)))
+  (loop for game = (driver (make-instance 'zonquerer))
+        while (play-again-p game)
+        finally (return game)))

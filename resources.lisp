@@ -389,7 +389,7 @@
            (wait-ms (aref durations frame))
            (dest-rect (sdl2:copy-rect source-rect))
            (paused nil))
-      (lambda (op &optional dest-pos dt)
+      (lambda (op &optional dest-pos dt (scale 1))
         (ecase op
           (:pause
            (setf paused t))
@@ -408,6 +408,8 @@
                         (setf wait-ms (aref durations frame))))
              (decf wait-ms (- now-ms time-ms))
              (setf time-ms now-ms)
+             (setf (sdl2:rect-width dest-rect) (* scale (sdl2:rect-width source-rect)))
+             (setf (sdl2:rect-height dest-rect) (* scale (sdl2:rect-height source-rect)))
              (setf (sdl2:rect-x dest-rect) (x dest-pos))
              (setf (sdl2:rect-y dest-rect) (y dest-pos))
              (sdl2:render-copy renderer

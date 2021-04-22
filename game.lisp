@@ -109,8 +109,7 @@
   )
 
 (defun window-event (game id)
-  (declare (ignore game))
-  (format t "Window event ~S~%" id))
+  (declare (ignore game id)))
 
 (defmethod request-cursor ((game standard-game) name)
   (setf (next-cursor game) name))
