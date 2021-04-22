@@ -1,5 +1,7 @@
 # zonquerer
 
+![Screenshot](https://github.com/death/zonquerer/raw/master/screenshots/zonquerer.png "Screenshot")
+
 This is Zonquerer, a real-time strategy game, almost.
 
 It is my submission to the Spring Lisp Game Jam 2021.
