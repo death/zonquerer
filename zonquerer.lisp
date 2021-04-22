@@ -183,12 +183,12 @@
             (let ((cell (point x y)))
               (when (occupiedp game cell)
                 (destructure-point (px py) (cell-to-screen-position game cell)
-                  (sdl2-ffi.functions:box-rgba renderer
-                                               px
-                                               py
-                                               (+ px unit-dim-1)
-                                               (+ py unit-dim-1)
-                                               #xFF #x00 #x00 #x1F))))))))))
+                  (box-rgba renderer
+                            px
+                            py
+                            (+ px unit-dim-1)
+                            (+ py unit-dim-1)
+                            #xFF #x00 #x00 #x1F))))))))))
 
 (defun occupy-outer-borders (occupancy-table map-dimensions)
   (destructure-point (mw mh) (map-position-to-cell map-dimensions)
@@ -589,19 +589,19 @@
     (dolist (anim (attack-anims unit))
       (funcall anim :draw pos dt))
     (when (selectedp unit)
-      (sdl2-ffi.functions:rectangle-rgba (renderer game)
-                                         (1- (x pos))
-                                         (1- (y pos))
-                                         (+ 1 unit-dim (x pos))
-                                         (+ 1 unit-dim (y pos))
-                                         #xFF #xFF #xFF #x7F))
+      (rectangle-rgba (renderer game)
+                      (1- (x pos))
+                      (1- (y pos))
+                      (+ 1 unit-dim (x pos))
+                      (+ 1 unit-dim (y pos))
+                      #xFF #xFF #xFF #x7F))
     (when (debuggingp game)
       (dolist (cell (path-to-walk unit))
         (let ((spos (cell-to-screen-position game cell)))
-          (sdl2-ffi.functions:pixel-rgba (renderer game)
-                                         (x spos)
-                                         (y spos)
-                                         #x00 #x00 #x00 #x7F))))))
+          (pixel-rgba (renderer game)
+                      (x spos)
+                      (y spos)
+                      #x00 #x00 #x00 #x7F))))))
 
 (defun add-unit (unit)
   (pushnew unit (units (game unit))))
@@ -693,7 +693,7 @@
          (start-position (- (start-position (selection-event-buildup game))
                             (map-start-position game)))
          (end-position (mouse-position game)))
-    (multiple-value-call #'sdl2-ffi.functions:rectangle-rgba
+    (multiple-value-call #'rectangle-rgba
       renderer
       (selection-bounds start-position end-position)
       #xFF #xFF #xFF #x7F)))

@@ -30,6 +30,8 @@
    #:split-sequence)
   (:import-from
    #:com.gigamonkeys.json)
+  (:import-from
+   #:sdl2)
   (:export
    #:check
    #:intern-resource
@@ -47,7 +49,10 @@
    #:as-keyword
    #:make-keyword-list
    #:noop
-   #:random-in-range))
+   #:random-in-range
+   #:box-rgba
+   #:rectangle-rgba
+   #:pixel-rgba))
 
 (in-package #:zonquerer/utils)
 
@@ -130,3 +135,34 @@
 (defun random-in-range (range)
   (destructuring-bind (lower-bound upper-bound) range
     (+ lower-bound (random (1+ (- upper-bound lower-bound))))))
+
+(defun box-rgba (renderer x1 y1 x2 y2 r g b a)
+  (when (> x1 x2)
+    (rotatef x1 x2))
+  (when (> y1 y2)
+    (rotatef y1 y2))
+  (let ((rect (sdl2:make-rect x1 y1 (1+ (- x2 x1)) (1+ (- y2 y1)))))
+    (unwind-protect
+         (progn
+           (sdl2:set-render-draw-blend-mode renderer (if (= a 255) :none :blend))
+           (sdl2:set-render-draw-color renderer r g b a)
+           (sdl2:render-fill-rect renderer rect))
+      (sdl2:free-rect rect))))
+
+(defun rectangle-rgba (renderer x1 y1 x2 y2 r g b a)
+  (when (> x1 x2)
+    (rotatef x1 x2))
+  (when (> y1 y2)
+    (rotatef y1 y2))
+  (let ((rect (sdl2:make-rect x1 y1 (1+ (- x2 x1)) (1+ (- y2 y1)))))
+    (unwind-protect
+         (progn
+           (sdl2:set-render-draw-blend-mode renderer (if (= a 255) :none :blend))
+           (sdl2:set-render-draw-color renderer r g b a)
+           (sdl2:render-draw-rect renderer rect))
+      (sdl2:free-rect rect))))
+
+(defun pixel-rgba (renderer x y r g b a)
+  (sdl2:set-render-draw-blend-mode renderer (if (= a 255) :none :blend))
+  (sdl2:set-render-draw-color renderer r g b a)
+  (sdl2:render-draw-point renderer x y))

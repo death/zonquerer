@@ -29,8 +29,6 @@
   (:import-from
    #:sdl2)
   (:import-from
-   #:sdl2-gfx)
-  (:import-from
    #:autowrap)
   (:import-from
    #:deploy)
