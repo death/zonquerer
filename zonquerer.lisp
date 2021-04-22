@@ -39,13 +39,15 @@
   ((map-start-position-float :initform #C(0.0 0.0) :accessor map-start-position-float)
    (map-renderer :initform nil :accessor map-renderer)
    (map-scroller :initform nil :accessor map-scroller)
-   (panel-height :initform 50 :reader panel-height)
+   (map-br-cell :initform nil :accessor map-br-cell)
    (units :initform '() :accessor units)
    (selection-event-buildup :initform nil :accessor selection-event-buildup)
    (string-renderer :initform nil :accessor string-renderer)
    (occupancy-table :initform nil :accessor occupancy-table)
    (debugging :initform nil :accessor debuggingp)
-   (stored-selections :initform (make-hash-table) :reader stored-selections)))
+   (stored-selections :initform (make-hash-table) :reader stored-selections)
+   (time-elapsed :initform 0.0 :accessor time-elapsed)
+   (timers :initform '() :accessor timers)))
 
 ;;;; Cursors
 
@@ -60,16 +62,6 @@
   (loop for (cursor-name hx hy) in *cursor-hotspots*
         do (intern-resource game 'cursor cursor-name :hot (point hx hy)))
   (request-cursor game :cursor-select))
-
-;;;; Panel
-
-(defun draw-panel (game dt)
-  (declare (ignore dt))
-  (let ((dest-rect (sdl2:make-rect 0 150 320 50)))
-    (sdl2:render-copy (renderer game)
-                      (external (intern-resource game 'texture :panel))
-                      :dest-rect dest-rect)
-    (sdl2:free-rect dest-rect)))
 
 ;;;; Font
 
@@ -91,8 +83,6 @@
         (margin 1))
     (destructure-point (vw vh) (video-dimensions game)
       (destructure-point (tmw tmh) (dimensions tile-map)
-        ;; Account for panel.
-        (incf tmh (panel-height game))
         (lambda (dt)
           (destructure-point (mx my) (mouse-position game)
             (let ((pos (map-start-position-float game))
@@ -124,11 +114,14 @@
   (funcall (map-renderer game) (map-start-position game)))
 
 (defun setup-map (game)
-  (let ((tile-map (intern-resource game 'tile-map :map-01)))
+  (let* ((tile-map (intern-resource game 'tile-map :map-01))
+         (dims (dimensions tile-map)))
+    (setf (map-start-position-float game) (/ (- dims (video-dimensions game)) 2))
     (setf (map-renderer game) (external tile-map))
     (setf (map-scroller game) (make-map-scroller tile-map))
     (setf (occupancy-table game) (copy-occupancy-table (occupancy-table tile-map)))
-    (occupy-outer-borders (occupancy-table game) (dimensions tile-map))))
+    (occupy-outer-borders (occupancy-table game) dims)
+    (setf (map-br-cell game) (map-position-to-cell dims))))
 
 ;;;; Occupancy Table
 
@@ -207,6 +200,19 @@
 (defun copy-occupancy-table (occupancy-table)
   (alexandria:copy-hash-table occupancy-table))
 
+(defun list-unoccupied-cells (game)
+  (let ((br-cell (map-br-cell game))
+        (cells '()))
+    (dotimes (y (y br-cell))
+      (dotimes (x (x br-cell))
+        (let ((cell (point x y)))
+          (unless (occupiedp game cell)
+            (push cell cells)))))
+    cells))
+
+(defun random-unoccupied-cell (game)
+  (alexandria:random-elt (list-unoccupied-cells game)))
+
 ;;;; Game events
 
 (defclass move-event (standard-event)
@@ -239,6 +245,37 @@
         (victims (victims event)))
     (when (null (action attacker))
       (setf (action attacker) (list :attack victims)))))
+
+;;;; Timers
+
+(defclass timer ()
+  ((expiry :initarg :expiry :accessor expiry)
+   (interval :initarg :interval :accessor interval)
+   (callback :initarg :callback :reader callback)))
+
+(defun remove-timer (game timer)
+  (setf (timers game) (remove timer (timers game) :count 1)))
+
+(defun add-timer (game &key absolute relative interval callback)
+  (let ((timer (make-instance 'timer
+                              :callback callback
+                              :interval interval
+                              :expiry (or absolute
+                                          (+ (time-elapsed game) relative)))))
+    (push timer (timers game))
+    timer))
+
+(defun update-timers (game dt)
+  (let ((elapsed (+ (time-elapsed game) dt))
+        (timers (timers game)))
+    (setf (time-elapsed game) elapsed)
+    (dolist (timer timers)
+      (when (>= elapsed (expiry timer))
+        (funcall (callback timer))
+        (let ((interval (interval timer)))
+          (if (null interval)
+              (remove-timer game timer)
+              (setf (expiry timer) (+ elapsed interval))))))))
 
 ;;;; Units
 
@@ -562,18 +599,52 @@
                                          (y spos)
                                          #x00 #x00 #x00 #x7F))))))
 
+(defun add-unit (unit)
+  (pushnew unit (units (game unit))))
+
+(defun create-player-units (game)
+  (let ((center (+ (map-start-position game) (/ (video-dimensions game) 2))))
+    (dotimes (i 9)
+      (multiple-value-bind (c r) (truncate i 3)
+        (let* ((pos (+ center
+                       (point (* (1- c) unit-dim)
+                              (* (1- r) unit-dim))))
+               (unit (make-instance 'player-unit
+                                    :game game
+                                    :position-on-map pos)))
+          (add-timer game
+                     :absolute (* (1+ i) 0.2)
+                     :callback (lambda ()
+                                 (add-unit unit))))))))
+
+(defun create-enemy-units (game)
+  (let ((cells (alexandria:shuffle (list-unoccupied-cells game))))
+    (dotimes (i 9)
+      (let* ((cell (pop cells))
+             (pos (cell-to-map-position cell))
+             (unit (make-instance 'enemy-unit
+                                  :game game
+                                  :position-on-map pos)))
+        (add-timer game
+                   :absolute (* (1+ i) 0.2)
+                   :callback (lambda ()
+                               (add-unit unit)))))))
+
+(defun create-enemy-unit (game)
+  (let* ((cell (random-unoccupied-cell game))
+         (pos (cell-to-map-position cell))
+         (unit (make-instance 'enemy-unit
+                              :game game
+                              :position-on-map pos)))
+    (add-unit unit)))
+
 (defun setup-units (game)
-  (dotimes (i 8)
-    (let ((unit (make-instance 'player-unit
-                               :game game
-                               :position-on-map (point (* (+ i 3) unit-dim)
-                                                       (* (if (evenp i) 3 4) unit-dim)))))
-      (push unit (units game)))
-    (let ((unit (make-instance 'enemy-unit
-                               :game game
-                               :position-on-map (point (* (+ i 3) unit-dim)
-                                                       (* (if (evenp i) 6 7) unit-dim)))))
-      (push unit (units game)))))
+  (create-player-units game)
+  (create-enemy-units game)
+  (add-timer game
+             :absolute 60
+             :interval 60
+             :callback (lambda () (create-enemy-unit game))))
 
 (defun selectablep (unit)
   (and (typep unit 'player-unit)
@@ -682,6 +753,7 @@
           (not (member :scancode-lshift (keys game)))))
   (update-stored-selections game dt)
   (update-map game dt)
+  (update-timers game dt)
   (dolist (unit (units game))
     (update-unit unit dt))
   (when (member :scancode-k (keys game))
@@ -694,8 +766,7 @@
   (dolist (unit (units game))
     (draw-unit unit dt))
   (when (selection-event-buildup game)
-    (draw-selection game dt))
-  (draw-panel game dt))
+    (draw-selection game dt)))
 
 (defmethod game-loop :before ((game zonquerer))
   (setup-cursors game)
