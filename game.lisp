@@ -32,6 +32,10 @@
    #:sdl2-gfx)
   (:import-from
    #:autowrap)
+  (:import-from
+   #:deploy)
+  (:import-from
+   #:asdf)
   (:export
    #:standard-game
    #:standard-event
@@ -48,7 +52,6 @@
    (ticks :initform 0 :accessor ticks)
    (current-cursor :initform nil :accessor current-cursor)
    (next-cursor :initform nil :accessor next-cursor)
-   (assets-directory :initform #p"/home/death/lisp/zonquerer/assets/" :reader assets-directory)
    (resources :initform (make-hash-table :test 'equal) :reader resources)
    (events :initform '() :accessor events)))
 
@@ -64,6 +67,11 @@
 (defmethod process-event ((game standard-game) event dt)
   (declare (ignore dt))
   (warn "Unprocessed event ~S." event))
+
+(defmethod assets-directory ((game standard-game))
+  (if (deploy:deployed-p)
+      #p"assets/"
+      (asdf:system-relative-pathname "zonquerer" "assets/")))
 
 (defmethod find-resource ((game standard-game) kind name)
   (gethash (list kind name) (resources game)))

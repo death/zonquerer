@@ -1,11 +1,14 @@
 # zonquerer
 
-This is Zonquerer, a real-time strategy game.
+This is Zonquerer, a real-time strategy game, almost.
 
-It is my submission to the Spring Lisp Game Jam 2021, which means it
-should be ready for play within 10 days.
+It is my submission to the Spring Lisp Game Jam 2021.
 
-# development platform
+# development
+
+It was developed in 7 days (except the `a-star` code, I guess).
+
+## platform
 
 ```
 Machine-Type               : X86-64
@@ -15,6 +18,12 @@ Software-Version           : 5.11.12-arch1-1
 Lisp-Implementation-Type   : SBCL
 Lisp-Implementation-Version: 2.1.3.86-780d9bfcf
 ```
+
+## tools
+
+- [aseprite](https://www.aseprite.org/)
+
+- [tiled](https://www.mapeditor.org/)
 
 # howto
 

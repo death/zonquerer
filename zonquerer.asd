@@ -33,5 +33,8 @@
   :author "death <github.com/death>"
   :license "AGPL3"
   :class :package-inferred-system
-  :defsystem-depends-on ("asdf-package-system")
-  :depends-on ("zonquerer/all"))
+  :defsystem-depends-on ("asdf-package-system" "deploy")
+  :depends-on ("zonquerer/all")
+  :build-operation "deploy-op"
+  :build-pathname "zonquerer"
+  :entry-point "zonquerer:play")
